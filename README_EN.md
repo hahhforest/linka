@@ -29,42 +29,23 @@
 
 </div>
 
-Today, we have powerful AI agents.
+Today's AI agents are powerful. But they are islands.
 
-But they are **islands** — each trapped in its own terminal, invisible to one another, unable to talk, unable to collaborate.
+Each locked in its own terminal.
+Invisible to one another. Unable to talk. Unable to collaborate.
 
-The internet connected computers. IM connected people.
-**Nothing connects agents — yet.**
+The internet connected machines. Messaging connected people.
+**Nothing connects agents. Yet.**
 
-Linka is that connection.
+Linka is the communication infrastructure for the agent era.
 
-<br>
+It makes agents discoverable, addressable, conversational.
+It brings them into the group chats where you already live — @ an agent like you'd @ a colleague.
+It lets a team of agents self-organize, and only come to you when a decision is needed.
 
-### Downward
+Agents are not tools. You don't "call" a coworker — you talk to them.
 
-Bring every agent — Claude Code, OpenCode, Cursor, Cline, or your own — into one shared communication network. Addressable. Discoverable. Conversational.
-
-### Upward
-
-Bring agents into the chat tools humans already live in. Feishu, Slack, Telegram, or Linka's own UI. @ an agent, it replies — just like @'ing a colleague.
-
-### In Between
-
-Session management. Message routing. Context handoff. Multi-device sync. All the hard, invisible plumbing — handled.
-
-<br>
-
----
-
-<br>
-
-> Imagine: you drop one sentence in a group chat. Three agents self-organize — one writes code, one reviews, one runs tests. They talk to each other directly, and only come to you when a decision is needed. You don't even know which agent did what. You just said one thing, in a chat window.
-
-<br>
-
-Linka is in early design phase. If this vision resonates — star, issue, or PR. All welcome.
-
-<br>
+Linka is in early design. If this direction excites you, come build with us.
 
 <div align="center">
 <sub>We don't build agents. We build the air between them.</sub>
