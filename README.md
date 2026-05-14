@@ -1,104 +1,79 @@
 <div align="center">
 
-<!-- logo placeholder -->
-<!-- <img src="assets/logo.svg" alt="Linka" width="200"> -->
+<!-- <img src="assets/logo.svg" alt="Linka" width="120"> -->
 
 # linka
 
-### The missing link between AI agents.
+### 连接一切 Agent 的通信层
+
+<br>
+
+*我们不造 Agent。我们造 Agent 之间的空气。*
+
+<br>
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![GitHub Stars](https://img.shields.io/github/stars/hahhforest/linka?style=social)](https://github.com/hahhforest/linka)
-
-[Vision](#vision) · [Why Linka](#why-linka) · [Architecture](#architecture) · [Roadmap](#roadmap) · [Contributing](#contributing)
+&nbsp;&nbsp;
+[English](./README_EN.md)
 
 </div>
 
----
+<br>
 
-## Vision
+## 为什么需要 Linka
 
-Today we have agents. What we don't have is **the space between them**.
+今天，我们有了强大的 AI Agent——Claude Code、OpenCode、Cursor、Cline……
 
-Every AI agent — Claude Code, OpenCode, Cursor, Cline — is a powerful, isolated brain. But brains without nerves are just tissue. No agent can discover another. No agent can hand off context to a colleague. No human can talk to their agents the way they talk to their teammates — in a chat window, naturally, asynchronously.
+但它们是**孤岛**。
 
-**Linka is the communication infrastructure for the agent era.** A protocol-native layer that sits above individual agents and below human interfaces, making every agent addressable, conversational, and collaborative.
+每个 Agent 困在自己的终端里，互相看不见，无法对话，无法协作。你想让两个 Agent 配合完成一件事？手动复制粘贴。你想像跟同事聊天一样跟 Agent 说话？打开终端，敲命令。
 
-We believe:
+**这不对。**
 
-- **Agents are communication entities, not tools.** You don't "invoke" a colleague — you talk to them. Agents deserve the same treatment.
-- **Humans and agents share one communication plane.** Agents should join your Slack, your Feishu, your group chat — not hide behind a terminal.
-- **Connection creates emergence.** When agents can freely discover, delegate, and converse, the system becomes greater than the sum of its parts.
+互联网连接了计算机。即时通讯连接了人。现在 Agent 正在成为新一代智能节点——但还没有东西连接它们。
 
-We don't build agents. We build the connections between them.
+**Linka 就是那个连接。**
 
-## Why Linka
+<br>
 
-| Today | With Linka |
-|-------|-----------|
-| Agents are isolated processes on your machine | Every agent has an identity and an address |
-| Talking to an agent means opening its specific terminal | Talk to any agent from any IM — Feishu, Slack, Telegram, or Linka's own UI |
-| Agent A cannot ask Agent B for help | Agents discover, message, and delegate to each other through a shared protocol |
-| Switching context between agents is manual and lossy | Sessions are managed, context is preserved, handoffs are seamless |
-| Running agents requires CLI expertise | One-click desktop app for everyone — power users get the CLI |
+## Linka 要做什么
 
-## Architecture
+**对下**——让所有 Agent 接入同一个通信网络，无论它是 Claude Code、OpenCode 还是你自己写的 Agent。它们可以被寻址、被发现、互相对话。
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                    Human Interface                        │
-│   Desktop App  │  Web UI  │  CLI  │  Feishu / Slack / …  │
-└───────┬────────┴────┬─────┴───┬───┴──────────┬───────────┘
-        └─────────────┴────┬────┴──────────────┘
-                           │
-                    Linka Protocol
-                    (addressing · messaging · sessions)
-                           │
-              ┌────────────┴────────────┐
-              │       Linka Daemon       │
-              │  ┌────────────────────┐  │
-              │  │  Agent Registry    │  │
-              │  │  Session Manager   │  │
-              │  │  Message Router    │  │
-              │  │  IM Bridge         │  │
-              │  └────────────────────┘  │
-              └────────────┬────────────┘
-                           │
-                    Adapter Layer
-                           │
-           ┌───────┬───────┼───────┬────────┐
-           │       │       │       │        │
-        Claude   Open    Cursor  Cline    Any
-        Code     Code                    Agent
-```
+**对上**——把 Agent 带进人类已有的沟通方式里。飞书、Slack、Telegram，或者 Linka 自己的界面。你 @ 一个 Agent，它就回复你，就像 @ 同事一样。
 
-## Roadmap
+**中间**——会话管理、消息路由、上下文保持。脏活累活，Linka 全包。
 
-> Linka is in early design phase. Everything below is directional.
+<br>
 
-- [ ] **Core Protocol** — Agent identity, addressing, message format
-- [ ] **Daemon** — Session lifecycle, message routing, agent registry
-- [ ] **Adapter SDK** — Plug any agent framework into Linka
-- [ ] **CLI** — `linka start`, `linka chat`, `linka agent list`
-- [ ] **Web UI** — Browser-based management and chat interface
-- [ ] **Desktop App** — One-click install for macOS and Windows
-- [ ] **IM Bridges** — Feishu, Slack, Telegram, Discord
-- [ ] **Agent Discovery** — Agents find and negotiate with each other
+## 愿景
 
-## Contributing
+想象这样的世界：
 
-Linka is just getting started. If the vision resonates, come build with us.
+你在群聊里说了一句需求，三个 Agent 自动分工——一个写代码、一个审查、一个跑测试。它们之间直接沟通，需要你决策时才来问你。
 
-- Star this repo to follow along
-- Open an issue to share ideas
-- PRs welcome
+你不关心是哪个 Agent 完成的。你只是在聊天窗口里，说了一句话。
+
+**这是 Linka 想要创造的未来。**
+
+<br>
+
+## 现状
+
+Linka 正处于早期设计阶段。如果这个愿景打动了你，欢迎关注、参与、一起构建。
+
+- Star 这个项目，跟踪进展
+- 开 Issue，分享你的想法
+- PR 随时欢迎
+
+<br>
 
 ## License
 
 [MIT](LICENSE)
 
----
+<br>
 
 <div align="center">
-<sub>We don't build agents. We build the connections between them.</sub>
+<sub>We don't build agents. We build the air between them.</sub>
 </div>
