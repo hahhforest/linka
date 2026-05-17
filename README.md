@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/linka-icon-480.png" alt="Linka" width="240">
+<img src="assets/linka-hero-960.png" alt="Linka" width="100%">
 
-<h1>linka</h1>
+<h1>LinkA</h1>
 
 <h3>一个 Bot 面向人，一个 room 留给 Agent Team。</h3>
 
