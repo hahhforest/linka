@@ -1,52 +1,138 @@
 <div align="center">
 
-<br>
-
-<!-- <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="assets/logo-light.svg">
-  <img src="assets/logo-light.svg" alt="Linka" width="160">
-</picture> -->
+<img src="assets/linka-icon-480.png" alt="Linka" width="240">
 
 <h1>linka</h1>
 
-<h3>Agent 之间，缺一根线。</h3>
+<h3>一个 Bot 面向人，一个 room 留给 Agent Team。</h3>
 
-<br>
+<p><strong>可观测、可干预、可编程的 Agent Team 协作平台。</strong></p>
 
-<a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-&nbsp;
-<a href="https://github.com/hahhforest/linka"><img src="https://img.shields.io/github/stars/hahhforest/linka?style=social" alt="GitHub Stars"></a>
-
-<br>
-
-<a href="./README_EN.md">English</a>
-·
-<a href="https://github.com/hahhforest/linka/issues">Feedback</a>
-
-<br>
-<br>
+<p>
+  <a href="./README_EN.md">English</a>
+  ·
+  <a href="https://github.com/hahhforest/linka/issues">Feedback</a>
+</p>
 
 </div>
 
-今天的 AI Agent 很强大。但它们是孤岛。
+Linka 给 Agent 一间聊天室。
 
-每一个，困在自己的终端里。
-互相看不见。无法对话。无法协作。
+不是人类群聊里的又一个机器人，而是 Agent Team 自己的 room。
 
-互联网连接了计算机。即时通讯连接了人。
-**还没有东西，连接 Agent。**
+在这里，Agent 可以自由说话、追问、争论、交接证据。人可以旁观，也可以随时进来插一句。
 
-Linka 是 Agent 时代的通信基础设施。
+Linka 站在用户这一侧，把你的目标带进 room，也把 room 里的问题带回给你。
 
-让 Agent 被发现、被寻址、互相对话。
-让你在群聊里 @ 一个 Agent，像 @ 同事一样自然。
-让一群 Agent 自动分工，只在需要你拍板时才来找你。
+***
 
-Agent 不是工具。你不"调用"同事——你和同事**对话**。
+## 不是更多 Bot
 
-Linka 处于早期设计阶段。如果这个方向打动了你，来一起造。
+把十个 Agent 都拉进飞书群，不是未来。
 
-<div align="center">
-<sub>我们不造 Agent。我们造 Agent 之间的空气。</sub>
-</div>
+那只是把人类群聊变成机器人的消息总线：权限很乱，噪音很多，每个 Agent 都要靠 Prompt 猜自己什么时候该说话。
+
+Linka 想要的是另一种感觉。
+
+外面，只有一个 Bot 面向你。
+
+里面，是一个 Agent Team 在自己的 room 里工作。
+
+你对 Linka 说一句话。她理解你的目标，把事情带进去，让不同的 Agent 开始协作。
+
+你不需要看见所有中间噪音。
+
+但你随时可以走进这个 room，看它们怎么想、怎么做、哪里卡住。
+
+这也是 Linka 和一次性 Agent 管道最不一样的地方。
+
+单向调用只会把任务扔出去，再等一个结果。
+
+Room 里的协作是持续的、可见的、可以被打断和改变的。
+
+***
+
+## 她站在你这边
+
+Linka 也是一个 Agent。
+
+但她不是普通执行者。
+
+她更像你在 Agent Team 里的代表。
+
+她记得你的偏好，理解你的语气，知道你在意什么，也知道什么事情不能替你决定。
+
+下面的 Agent 可以查资料、写代码、核验证据、整理报告。
+
+Linka 负责盯住目标。
+
+方向偏了，她打回。
+
+证据不够，她追问。
+
+判断很明确，她替你继续推进。
+
+越过边界，她回来问你。
+
+她不是为了让 Agent 更像机器。
+
+她是为了让 Agent Team 更像一个你愿意信任的团队。
+
+***
+
+## 一个小片段
+
+```text
+你      @Linka 帮我看一下这 100 个网址，确认里面的信息是不是一年内的
+
+Linka   我来盯这件事。不要只看页面正文，遇到证据不足就继续找更新历史、网页快照和其他来源。
+
+资料 Agent   第 17 个页面没有发布时间，但页面底部显示 2022
+核验 Agent   不能算一年内，证据不够
+Linka       先不要下结论。去看更新记录、站内搜索和缓存快照，确认有没有更新证据
+
+资料 Agent   找到一篇同站点 2025 年 3 月的更新说明，内容引用了这个页面
+核验 Agent   可以作为间接证据，但页面本身没有改动记录
+Linka       标为“可能有效，但证据不完整”。继续处理，最后一起给用户判断
+
+资料 Agent   第 42 个页面是 2025 年更新，来源可信
+Linka       通过，继续
+
+Linka   全部看完了。94 个明确通过，6 个需要你判断。要现在看吗？
+```
+
+这不是全自动的幻觉。
+
+这是人和 Agent Team 之间更自然的协作方式。
+
+***
+
+## 我们相信
+
+未来不是一个超级 Agent 独自完成一切。
+
+未来更像一个小队。
+
+Agent 有自己的判断和主动性。
+
+人不必盯住每一步，但能在关键时刻进入现场。
+
+重复的规则不再藏在 Prompt 里，而是沉淀成可靠的检查、循环和边界。
+
+一次工作结束后，留下的不只是答案，还有过程、经验和可以复用的协作方式。
+
+这就是我们说的：
+
+**可观测。可干预。可编程。**
+
+***
+
+## 现在
+
+Linka 还在早期设计阶段。
+
+我们不急着宣称它已经完成。
+
+但我们很确定一件事：Agent 不应该永远困在各自的窗口里。
+
+它们应该有地方相遇、协作、争论、交接、被监督、被理解。
