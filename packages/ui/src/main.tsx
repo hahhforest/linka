@@ -1,16 +1,17 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-export const uiPackageName = "@linka/ui";
+import { App } from "./app/App.js";
+import "./styles/main.css";
 
 const rootElement = document.getElementById("root");
 
 if (!rootElement) {
-  throw new Error("Missing root element for LinkA UI scaffold.");
+  throw new Error("Missing root element for LinkA UI.");
 }
 
 createRoot(rootElement).render(
   <StrictMode>
-    <main>LinkA UI scaffold</main>
+    <App />
   </StrictMode>,
 );

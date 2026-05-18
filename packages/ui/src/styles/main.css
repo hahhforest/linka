@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #202421;
+  background: #f7f4ee;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    linear-gradient(90deg, rgba(32, 36, 33, 0.035) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(0deg, rgba(32, 36, 33, 0.03) 1px, transparent 1px) 0 0 / 44px 44px,
+    #f7f4ee;
+  font-family: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #2d6f90;
+  outline-offset: 2px;
+}
+
+.linka-scrollbar {
+  scrollbar-color: rgba(102, 113, 106, 0.46) transparent;
+  scrollbar-width: thin;
+}
+
+.linka-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.linka-scrollbar::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(102, 113, 106, 0.46);
+  background-clip: padding-box;
+}
