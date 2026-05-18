@@ -1,8 +1,18 @@
 import { useState } from "react";
 
-export const Composer = () => {
+import type { RoomDataSource } from "../../store/roomStore.js";
+import { useRoomStore } from "../../store/roomStore.js";
+
+interface ComposerProps {
+  readonly source: RoomDataSource;
+}
+
+export const Composer = ({ source }: ComposerProps) => {
   const [draft, setDraft] = useState("");
   const [localNote, setLocalNote] = useState<string | undefined>();
+  const isSending = useRoomStore((state) => state.isSending);
+  const sendComposerMessage = useRoomStore((state) => state.sendComposerMessage);
+  const submitLabel = source === "api" ? "发送" : "本地暂存";
 
   return (
     <section className="border-t border-line bg-[#fffdf8] px-4 py-4 sm:px-6">
@@ -16,12 +26,18 @@ export const Composer = () => {
         onSubmit={(event) => {
           event.preventDefault();
           const nextDraft = draft.trim();
-          if (nextDraft.length === 0) {
+          if (nextDraft.length === 0 || isSending) {
             return;
           }
 
-          setLocalNote(nextDraft);
+          if (source !== "api") {
+            setLocalNote(nextDraft);
+          } else {
+            setLocalNote(undefined);
+          }
+
           setDraft("");
+          void sendComposerMessage(nextDraft);
         }}
       >
         <label className="sr-only" htmlFor="room-composer">
@@ -40,9 +56,9 @@ export const Composer = () => {
           <button
             className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-linka disabled:cursor-not-allowed disabled:bg-muted"
             type="submit"
-            disabled={draft.trim().length === 0}
+            disabled={draft.trim().length === 0 || isSending}
           >
-            本地暂存
+            {isSending ? "发送中" : submitLabel}
           </button>
         </div>
       </form>

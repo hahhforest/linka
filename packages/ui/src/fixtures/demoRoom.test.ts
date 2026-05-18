@@ -31,3 +31,6 @@ for (const message of demoRoom.messages) {
 }
 
 console.log("demo room sanity: ok");
+
+await import("../services/roomsService.test.js");
+await import("../store/roomStore.test.js");

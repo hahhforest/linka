@@ -1,11 +1,16 @@
 import { useEffect } from "react";
 
-import { demoRoom } from "../fixtures/demoRoom.js";
-import { useConnectionStore } from "../store/connectionStore.js";
 import { RoomWorkspace } from "../components/shell/RoomWorkspace.js";
+import { useConnectionStore } from "../store/connectionStore.js";
+import { useRoomStore } from "../store/roomStore.js";
 
 export const App = () => {
   const checkDaemonConnection = useConnectionStore((state) => state.checkDaemonConnection);
+  const initializeRoomWorkspace = useRoomStore((state) => state.initializeRoomWorkspace);
+
+  useEffect(() => {
+    void initializeRoomWorkspace();
+  }, [initializeRoomWorkspace]);
 
   useEffect(() => {
     void checkDaemonConnection();
@@ -16,5 +21,5 @@ export const App = () => {
     return () => window.clearInterval(intervalId);
   }, [checkDaemonConnection]);
 
-  return <RoomWorkspace demoRoom={demoRoom} />;
+  return <RoomWorkspace />;
 };
