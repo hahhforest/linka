@@ -4,6 +4,7 @@ import { createDevEventsRoute } from "./api/dev-events.js";
 import { errorResponse, handleDaemonError } from "./api/errors.js";
 import { createEventsRoute } from "./api/events.js";
 import { createHealthRoute } from "./api/health.js";
+import { createRoomsRoute } from "./api/rooms.js";
 import type { DaemonContainer } from "./container/index.js";
 
 export function createDaemonApp(container: DaemonContainer): Hono {
@@ -16,6 +17,7 @@ export function createDaemonApp(container: DaemonContainer): Hono {
   linka.route("/", createHealthRoute(container));
   linka.route("/", createEventsRoute(container));
   linka.route("/", createDevEventsRoute(container));
+  linka.route("/", createRoomsRoute(container));
 
   return app;
 }

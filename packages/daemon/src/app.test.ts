@@ -142,3 +142,155 @@ test("GET /linka/events replays persisted history after query cursor", async () 
     container.close();
   }
 });
+
+test("room API creates members and messages with sequenced history and replayable events", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Research Room", topic: "evidence check" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+
+    assert.equal(createRoomResponse.status, 201);
+
+    const humanResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_human", kind: "human", displayName: "Human" }),
+      },
+    );
+    const humanBody = (await humanResponse.json()) as { ok: true; member: { id: string } };
+    const agentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_agent", kind: "agent", displayName: "Agent" }),
+      },
+    );
+    const agentBody = (await agentResponse.json()) as { ok: true; member: { id: string } };
+
+    assert.equal(humanResponse.status, 201);
+    assert.equal(agentResponse.status, 201);
+
+    const firstMessageResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ senderMemberId: humanBody.member.id, text: "hello" }),
+      },
+    );
+    const secondMessageResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ senderMemberId: agentBody.member.id, kind: "text", text: "hi" }),
+      },
+    );
+
+    assert.equal(firstMessageResponse.status, 201);
+    assert.equal(secondMessageResponse.status, 201);
+
+    const historyResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages?afterSequence=0&limit=10`,
+    );
+    const historyBody = (await historyResponse.json()) as {
+      ok: true;
+      messages: readonly { sequence: number; text?: string }[];
+    };
+
+    assert.equal(historyResponse.status, 200);
+    assert.deepEqual(
+      historyBody.messages.map((message) => message.sequence),
+      [1, 2],
+    );
+    assert.deepEqual(
+      historyBody.messages.map((message) => message.text),
+      ["hello", "hi"],
+    );
+
+    assert.deepEqual(
+      container.eventStore.listAfter(0, 10).map((event) => event.type),
+      ["room.created", "member.joined", "member.joined", "message.created", "message.created"],
+    );
+
+    const eventsResponse = await app.request("http://127.0.0.1/linka/events?cursor=0");
+    const replayedEvent = await readSseEvent(eventsResponse);
+
+    assert.equal(eventsResponse.status, 200);
+    assert.equal(replayedEvent.type, "room.created");
+    assert.equal(replayedEvent.roomId, createRoomBody.room.id);
+  } finally {
+    container.close();
+  }
+});
+
+test("room API rejects bad member kind", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Research Room" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+    const badKindResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "runtime", displayName: "Bad Member" }),
+      },
+    );
+    const badKindBody = await badKindResponse.json();
+
+    assert.equal(badKindResponse.status, 400);
+    assert.deepEqual(badKindBody, {
+      ok: false,
+      error: { code: "BAD_REQUEST", message: "kind must be one of human, agent" },
+    });
+  } finally {
+    container.close();
+  }
+});
+
+test("room API rejects sending from an unknown sender member", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Research Room" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+    const sendResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ senderMemberId: "rmem_unknown", text: "hello" }),
+      },
+    );
+    const sendBody = await sendResponse.json();
+
+    assert.equal(sendResponse.status, 404);
+    assert.deepEqual(sendBody, {
+      ok: false,
+      error: { code: "NOT_FOUND", message: "sender member not found" },
+    });
+  } finally {
+    container.close();
+  }
+});

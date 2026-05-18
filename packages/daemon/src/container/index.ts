@@ -7,6 +7,8 @@ import { openDatabase, type DatabaseHandle } from "../db/connection.js";
 import { runMigrations } from "../db/migrations.js";
 import { createEventBus, type EventBus } from "../event-bus/index.js";
 import { createEventStore, type EventStore } from "../store/event-store.js";
+import { createMessageStore, type MessageStore } from "../store/message-store.js";
+import { createRoomStore, type RoomStore } from "../store/room-store.js";
 
 export const DAEMON_VERSION = "0.0.0";
 
@@ -29,6 +31,8 @@ export interface DaemonContainerOptions {
   database?: DatabaseHandle;
   eventStore?: EventStore;
   eventBus?: EventBus;
+  roomStore?: RoomStore;
+  messageStore?: MessageStore;
 }
 
 export interface DaemonContainer {
@@ -41,6 +45,8 @@ export interface DaemonContainer {
   readonly database: DatabaseHandle | null;
   readonly eventStore: EventStore;
   readonly eventBus: EventBus;
+  readonly roomStore: RoomStore;
+  readonly messageStore: MessageStore;
   readonly uptimeMs: () => number;
   readonly close: () => void;
 }
@@ -52,10 +58,16 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
   const port = resolvePort({ ...options, profile });
   const dataDir = getDataDir({ ...options, profile });
   const databasePath = options.databasePath ?? join(dataDir, "linka.sqlite");
-  const ownsDatabase = options.database === undefined && options.eventStore === undefined;
-  const database = options.database ?? (options.eventStore ? null : openContainerDatabase(databasePath));
+  const allStoresProvided =
+    options.eventStore !== undefined &&
+    options.roomStore !== undefined &&
+    options.messageStore !== undefined;
+  const ownsDatabase = options.database === undefined && !allStoresProvided;
+  const database = options.database ?? (allStoresProvided ? null : openContainerDatabase(databasePath));
   const eventStore = options.eventStore ?? createMigratedEventStore(database);
   const eventBus = options.eventBus ?? createEventBus();
+  const roomStore = options.roomStore ?? createMigratedRoomStore(database);
+  const messageStore = options.messageStore ?? createMigratedMessageStore(database);
 
   return {
     profile,
@@ -67,6 +79,8 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
     database,
     eventStore,
     eventBus,
+    roomStore,
+    messageStore,
     uptimeMs: () => Math.max(0, now().getTime() - startedAt.getTime()),
     close: () => {
       if (ownsDatabase) {
@@ -99,4 +113,22 @@ function createMigratedEventStore(database: DatabaseHandle | null): EventStore {
 
   runMigrations(database);
   return createEventStore(database);
+}
+
+function createMigratedRoomStore(database: DatabaseHandle | null): RoomStore {
+  if (!database) {
+    throw new Error("database is required when roomStore is not provided");
+  }
+
+  runMigrations(database);
+  return createRoomStore(database);
+}
+
+function createMigratedMessageStore(database: DatabaseHandle | null): MessageStore {
+  if (!database) {
+    throw new Error("database is required when messageStore is not provided");
+  }
+
+  runMigrations(database);
+  return createMessageStore(database);
 }
