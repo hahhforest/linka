@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"console.log('daemon: no tests yet')\"",
+    "test": "node --import tsx --test src/app.test.ts src/container/index.test.ts src/server.test.ts && tsx src/db/run-db-tests.ts",
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {

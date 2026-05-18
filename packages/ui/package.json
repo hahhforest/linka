@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"console.log('ui: no tests yet')\"",
+    "test": "tsc -p tsconfig.test.json --noEmit && tsx src/fixtures/demoRoom.test.ts",
     "dev": "vite --host 127.0.0.1"
   },
   "dependencies": {
