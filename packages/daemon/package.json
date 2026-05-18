@@ -18,11 +18,15 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
+    "@hono/node-server": "^2.0.3",
     "@linka/config": "workspace:^",
     "@linka/harness": "workspace:^",
-    "@linka/shared": "workspace:^"
+    "@linka/shared": "workspace:^",
+    "better-sqlite3": "^12.10.0",
+    "hono": "^4.12.19"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "tsx": "^4.19.2"
   }
 }
