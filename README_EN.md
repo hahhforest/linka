@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/linka-hero-960.png" alt="Linka" width="100%">
+
 <br>
 
 <!-- <picture>
