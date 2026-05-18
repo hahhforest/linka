@@ -8,3 +8,5 @@ dist/
 inner_docs/
 
 .worktree/
+.turbo/
+*.tsbuildinfo

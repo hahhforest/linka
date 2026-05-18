@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "composite": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@linka/shared": ["packages/shared/src/index.ts"],
+      "@linka/config": ["packages/config/src/index.ts"],
+      "@linka/harness": ["packages/harness/src/index.ts"],
+      "@linka/daemon": ["packages/daemon/src/index.ts"],
+      "@linka/ui": ["packages/ui/src/main.tsx"],
+      "@linka/cli": ["packages/cli/src/index.ts"]
+    }
+  }
+}

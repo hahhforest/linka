@@ -1,0 +1,28 @@
+{
+  "name": "@linka/daemon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"console.log('daemon: no tests yet')\"",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@linka/config": "workspace:^",
+    "@linka/harness": "workspace:^",
+    "@linka/shared": "workspace:^"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

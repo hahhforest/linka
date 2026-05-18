@@ -1,0 +1,28 @@
+{
+  "name": "linka",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "dev": "./scripts/dev-stack.sh",
+    "format": "prettier --check .prettierrc .eslintrc.cjs CLAUDE.md package.json pnpm-workspace.yaml turbo.json tsconfig.*.json packages/**/*.{json,ts,tsx} docs/plans/**/*.md"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.16",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.11"
+  }
+}

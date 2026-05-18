@@ -1,0 +1,12 @@
+README.md
+README_EN.md
+AGENTS.md
+.agents/
+docs/*.md
+pnpm-lock.yaml
+inner_docs/
+node_modules/
+dist/
+.turbo/
+packages/*/dist/
+packages/*/.turbo/
