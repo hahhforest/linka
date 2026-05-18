@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"console.log('shared: no tests yet')\"",
+    "test": "tsx test/contracts.test.ts",
     "dev": "node -e \"console.log('shared: no dev server')\""
   }
 }
