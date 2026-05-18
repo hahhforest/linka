@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"console.log('harness: no tests yet')\"",
+    "test": "tsx src/index.test.ts",
     "dev": "node -e \"console.log('harness: no dev server')\""
   },
   "dependencies": {

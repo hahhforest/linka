@@ -294,3 +294,129 @@ test("room API rejects sending from an unknown sender member", async () => {
     container.close();
   }
 });
+
+
+test("fake harness replies as mentioned agent without creating a system log", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Harness Room" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+    const humanResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_harness_human", kind: "human", displayName: "Human" }),
+      },
+    );
+    const agentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_harness_agent", kind: "agent", displayName: "Research Agent" }),
+      },
+    );
+    const humanBody = (await humanResponse.json()) as { ok: true; member: { id: string } };
+    const agentBody = (await agentResponse.json()) as { ok: true; member: { id: string } };
+
+    const messageResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderMemberId: humanBody.member.id,
+          kind: "instruction",
+          text: "请检查这个页面是否一年内更新。",
+          mentions: [{ memberId: agentBody.member.id, displayText: "@Research Agent" }],
+        }),
+      },
+    );
+
+    assert.equal(messageResponse.status, 201);
+
+    const historyResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages?afterSequence=0&limit=10`,
+    );
+    const historyBody = (await historyResponse.json()) as {
+      ok: true;
+      messages: readonly { id: string; sequence: number; sender: { kind: string; memberId?: string }; text?: string; replyTo?: { messageId: string } }[];
+    };
+
+    assert.equal(historyBody.messages.length, 2);
+    assert.equal(historyBody.messages[0]?.sender.memberId, humanBody.member.id);
+    assert.equal(historyBody.messages[1]?.sender.kind, "member");
+    assert.equal(historyBody.messages[1]?.sender.memberId, agentBody.member.id);
+    assert.match(historyBody.messages[1]?.text ?? "", /Research Agent/);
+    assert.equal(historyBody.messages[1]?.replyTo?.messageId, historyBody.messages[0]?.id);
+    assert.deepEqual(
+      container.eventStore.listAfter(0, 20).map((event) => event.type).slice(-2),
+      ["message.created", "message.created"],
+    );
+  } finally {
+    container.close();
+  }
+});
+
+test("fake harness does not reply to agent-authored mentions", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Harness Loop Room" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+    const firstAgentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_agent_a", kind: "agent", displayName: "Agent A" }),
+      },
+    );
+    const secondAgentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_agent_b", kind: "agent", displayName: "Agent B" }),
+      },
+    );
+    const firstAgentBody = (await firstAgentResponse.json()) as { ok: true; member: { id: string } };
+    const secondAgentBody = (await secondAgentResponse.json()) as { ok: true; member: { id: string } };
+
+    const messageResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderMemberId: firstAgentBody.member.id,
+          text: "@Agent B please continue",
+          mentions: [{ memberId: secondAgentBody.member.id, displayText: "@Agent B" }],
+        }),
+      },
+    );
+
+    assert.equal(messageResponse.status, 201);
+
+    const historyResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages?afterSequence=0&limit=10`,
+    );
+    const historyBody = (await historyResponse.json()) as { ok: true; messages: readonly unknown[] };
+
+    assert.equal(historyBody.messages.length, 1);
+  } finally {
+    container.close();
+  }
+});

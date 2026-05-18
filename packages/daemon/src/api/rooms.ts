@@ -3,6 +3,7 @@ import {
   isRoomId,
   isRoomMemberId,
   isRoomMemberKind,
+  getMentionedMemberIds,
   isRoomMessageKind,
   participantId,
   roomId,
@@ -23,6 +24,7 @@ import {
   unixMs,
 } from "@linka/shared";
 import { Hono } from "hono";
+import { createFakeHarnessReply } from "@linka/harness";
 
 import { errorResponse } from "./errors.js";
 import type { DaemonContainer } from "../container/index.js";
@@ -341,12 +343,70 @@ const addMember = (
   return member;
 };
 
+const publishMessageCreated = (container: DaemonContainer, roomId: Room["id"], message: RoomMessage): void => {
+  publishRoomEvent(container, {
+    roomId,
+    type: "message.created",
+    payload: { message },
+  });
+};
+
+const appendFakeHarnessReply = (
+  container: DaemonContainer,
+  room: Room,
+  members: readonly RoomMember[],
+  message: RoomMessage,
+): void => {
+  if (!["text", "instruction", "intervention", "question"].includes(message.kind)) {
+    return;
+  }
+
+  const messageSender = message.sender;
+  if (messageSender.kind !== "member") {
+    return;
+  }
+
+  const sender = members.find((member) => member.id === messageSender.memberId);
+  if (!sender || sender.kind === "agent") {
+    return;
+  }
+
+  const mentionedAgent = getMentionedMemberIds(message)
+    .map((memberId) => members.find((member) => member.id === memberId))
+    .find((member): member is RoomMember => member?.kind === "agent");
+
+  if (!mentionedAgent) {
+    return;
+  }
+
+  const recentMessages = container.messageStore.listMessages(room.id, { afterSequence: 0, limit: 20 });
+  const reply = createFakeHarnessReply({
+    room,
+    members,
+    messages: recentMessages,
+    targetMember: mentionedAgent,
+  });
+  const replyMessage = container.messageStore.appendMessage({
+    id: createMessageApiId(),
+    roomId: room.id,
+    sender: { kind: "member", memberId: mentionedAgent.id },
+    kind: "text",
+    createdAt: unixMs(Date.now()),
+    text: reply.text,
+    replyTo: { messageId: message.id },
+    visibility: defaultVisibility,
+    notification: defaultNotificationPolicy,
+  });
+
+  publishMessageCreated(container, room.id, replyMessage);
+};
+
 const appendMessage = (
   container: DaemonContainer,
   id: Room["id"],
   body: AppendMessageRequestBody,
 ): RoomMessage => {
-  ensureRoom(container, id);
+  const room = ensureRoom(container, id);
   const object = assertBodyObject(body);
   const members = container.roomStore.listMembers(id);
   const membersById = new Map(members.map((member) => [member.id, member]));
@@ -369,11 +429,8 @@ const appendMessage = (
     notification: defaultNotificationPolicy,
   });
 
-  publishRoomEvent(container, {
-    roomId: id,
-    type: "message.created",
-    payload: { message },
-  });
+  publishMessageCreated(container, id, message);
+  appendFakeHarnessReply(container, room, members, message);
 
   return message;
 };
