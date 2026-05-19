@@ -3,6 +3,7 @@ import {
   roomMessageId,
   unixMs,
   type Announcement,
+  type Doc,
   type PinnedItem,
   type Room,
   type RoomFile,
@@ -15,6 +16,7 @@ import {
 import { demoRoom } from "../fixtures/demoRoom.js";
 import { parseComposerMentions } from "./composerMentions.js";
 import type { RealtimeRoomEvent } from "../services/realtime/index.js";
+import { listRoomDocs } from "../services/docsService.js";
 import {
   addRoomMember,
   createRoom,
@@ -30,6 +32,7 @@ export interface RoomWorkspaceSnapshot {
   readonly room: Room;
   readonly members: readonly RoomMember[];
   readonly messages: readonly RoomMessage[];
+  readonly docs: readonly Doc[];
   readonly files: readonly RoomFile[];
   readonly announcements: readonly Announcement[];
   readonly pinnedItems: readonly PinnedItem[];
@@ -41,6 +44,7 @@ export interface RoomState {
   readonly activeRoomId?: RoomId;
   readonly membersByRoomId: Readonly<Record<string, readonly RoomMember[]>>;
   readonly messagesByRoomId: Readonly<Record<string, readonly RoomMessage[]>>;
+  readonly docsByRoomId: Readonly<Record<string, readonly Doc[]>>;
   readonly filesByRoomId: Readonly<Record<string, readonly RoomFile[]>>;
   readonly announcementsByRoomId: Readonly<Record<string, readonly Announcement[]>>;
   readonly pinnedItemsByRoomId: Readonly<Record<string, readonly PinnedItem[]>>;
@@ -59,6 +63,7 @@ export interface RoomState {
 const fallbackRooms = [demoRoom.room];
 const fallbackMembersByRoomId = { [demoRoom.room.id]: demoRoom.members };
 const fallbackMessagesByRoomId = { [demoRoom.room.id]: demoRoom.messages };
+const fallbackDocsByRoomId = { [demoRoom.room.id]: [] };
 const fallbackFilesByRoomId = { [demoRoom.room.id]: demoRoom.files };
 const fallbackAnnouncementsByRoomId = { [demoRoom.room.id]: demoRoom.announcements };
 const fallbackPinnedItemsByRoomId = { [demoRoom.room.id]: demoRoom.pinnedItems };
@@ -70,6 +75,7 @@ const getActiveSnapshot = (
     | "activeRoomId"
     | "membersByRoomId"
     | "messagesByRoomId"
+    | "docsByRoomId"
     | "filesByRoomId"
     | "announcementsByRoomId"
     | "pinnedItemsByRoomId"
@@ -83,6 +89,7 @@ const getActiveSnapshot = (
     room,
     members: state.membersByRoomId[room.id] ?? [],
     messages: state.messagesByRoomId[room.id] ?? [],
+    docs: state.docsByRoomId[room.id] ?? [],
     files: state.filesByRoomId[room.id] ?? [],
     announcements: state.announcementsByRoomId[room.id] ?? [],
     pinnedItems: state.pinnedItemsByRoomId[room.id] ?? [],
@@ -98,6 +105,7 @@ const loadFallback = (set: (state: Partial<RoomState>) => void, error?: unknown)
     activeRoomId: demoRoom.room.id,
     membersByRoomId: fallbackMembersByRoomId,
     messagesByRoomId: fallbackMessagesByRoomId,
+    docsByRoomId: fallbackDocsByRoomId,
     filesByRoomId: fallbackFilesByRoomId,
     announcementsByRoomId: fallbackAnnouncementsByRoomId,
     pinnedItemsByRoomId: fallbackPinnedItemsByRoomId,
@@ -156,13 +164,15 @@ const loadApiRoomData = async (
 ): Promise<{
   readonly members: readonly RoomMember[];
   readonly messages: readonly RoomMessage[];
+  readonly docs: readonly Doc[];
 }> => {
-  const [members, messages] = await Promise.all([
+  const [members, messages, docs] = await Promise.all([
     listRoomMembers(room.id),
     listRoomMessages(room.id, { afterSequence: 0, limit: 500 }),
+    listRoomDocs(room.id),
   ]);
 
-  return { members, messages };
+  return { members, messages, docs };
 };
 
 const findHumanSender = (members: readonly RoomMember[]): RoomMember | undefined =>
@@ -223,6 +233,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   activeRoomId: undefined,
   membersByRoomId: {},
   messagesByRoomId: {},
+  docsByRoomId: {},
   filesByRoomId: {},
   announcementsByRoomId: {},
   pinnedItemsByRoomId: {},
@@ -243,13 +254,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       }
 
       const activeRoom = rooms[0] ?? demoRoom.room;
-      const { members, messages } = await loadApiRoomData(activeRoom);
+      const { members, messages, docs } = await loadApiRoomData(activeRoom);
 
       set({
         rooms,
         activeRoomId: activeRoom.id,
         membersByRoomId: { [activeRoom.id]: members },
         messagesByRoomId: { [activeRoom.id]: messages },
+        docsByRoomId: { [activeRoom.id]: docs },
         filesByRoomId: { [activeRoom.id]: [] },
         announcementsByRoomId: { [activeRoom.id]: [] },
         pinnedItemsByRoomId: { [activeRoom.id]: [] },
@@ -277,10 +289,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     }
 
     try {
-      const { members, messages } = await loadApiRoomData(room);
+      const { members, messages, docs } = await loadApiRoomData(room);
       set((current) => ({
         membersByRoomId: { ...current.membersByRoomId, [roomId]: members },
         messagesByRoomId: { ...current.messagesByRoomId, [roomId]: messages },
+        docsByRoomId: { ...current.docsByRoomId, [roomId]: docs },
         errorMessage: undefined,
       }));
     } catch (error) {
@@ -297,10 +310,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     }
 
     try {
-      const { members, messages } = await loadApiRoomData(room);
+      const { members, messages, docs } = await loadApiRoomData(room);
       set((current) => ({
         membersByRoomId: { ...current.membersByRoomId, [room.id]: members },
         messagesByRoomId: { ...current.messagesByRoomId, [room.id]: messages },
+        docsByRoomId: { ...current.docsByRoomId, [room.id]: docs },
         errorMessage: undefined,
       }));
     } catch (error) {
@@ -331,6 +345,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           messagesByRoomId: {
             ...current.messagesByRoomId,
             [room.id]: current.messagesByRoomId[room.id] ?? [],
+          },
+          docsByRoomId: {
+            ...current.docsByRoomId,
+            [room.id]: current.docsByRoomId[room.id] ?? [],
           },
           filesByRoomId: {
             ...current.filesByRoomId,
@@ -423,10 +441,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         text: trimmed,
         ...(mentions.length > 0 ? { mentions } : {}),
       });
-      const { members, messages } = await loadApiRoomData(snapshot.room);
+      const { members, messages, docs } = await loadApiRoomData(snapshot.room);
       set((current) => ({
         membersByRoomId: { ...current.membersByRoomId, [snapshot.room.id]: members },
         messagesByRoomId: { ...current.messagesByRoomId, [snapshot.room.id]: messages },
+        docsByRoomId: { ...current.docsByRoomId, [snapshot.room.id]: docs },
         isSending: false,
         errorMessage: undefined,
       }));

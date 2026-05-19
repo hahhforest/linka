@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 
+import { docId, unixMs, type Doc } from "@linka/shared";
+
 import { demoRoom } from "../fixtures/demoRoom.js";
 import * as roomStoreModule from "./roomStore.js";
 import { useRoomStore } from "./roomStore.js";
@@ -28,6 +30,7 @@ const resetStore = (): void => {
     activeRoomId: undefined,
     membersByRoomId: {},
     messagesByRoomId: {},
+    docsByRoomId: {},
     filesByRoomId: {},
     announcementsByRoomId: {},
     pinnedItemsByRoomId: {},
@@ -67,6 +70,7 @@ await withMockFetch(
     assert.equal(state.rooms[0]?.id, demoRoom.room.id);
     assert.equal(state.membersByRoomId[demoRoom.room.id]?.length, demoRoom.members.length);
     assert.equal(state.messagesByRoomId[demoRoom.room.id]?.length, demoRoom.messages.length);
+    assert.deepEqual(state.docsByRoomId[demoRoom.room.id], []);
     assert.equal(state.filesByRoomId[demoRoom.room.id]?.length, demoRoom.files.length);
     assert.equal(
       state.announcementsByRoomId[demoRoom.room.id]?.length,
@@ -86,6 +90,20 @@ console.log("room store fallback: ok");
 
 const apiRoom = demoRoom.room;
 const apiMembers = demoRoom.members;
+const apiDocs: readonly Doc[] = [
+  {
+    id: docId("doc_room_store_brief"),
+    contextRoomId: apiRoom.id,
+    title: "Room Store Brief",
+    format: "markdown",
+    status: "active",
+    body: "# Brief\n\nLoaded through room store.",
+    createdAt: unixMs(1_716_000_100_000),
+    updatedAt: unixMs(1_716_000_100_100),
+    createdByMemberId: apiMembers[0].id,
+    visibility: { scope: "room" },
+  },
+];
 const initialApiMessage = demoRoom.messages.find(
   (message) => message.id === "rmsg_user_initial_request",
 );
@@ -113,9 +131,11 @@ const responses = [
   makeJsonResponse({ ok: true, message: initialApiMessage }, 201),
   makeJsonResponse({ ok: true, members: apiMembers }),
   makeJsonResponse({ ok: true, messages: [initialApiMessage] }),
+  makeJsonResponse({ ok: true, docs: apiDocs }),
   makeJsonResponse({ ok: true, message: composerApiMessage }, 201),
   makeJsonResponse({ ok: true, members: apiMembers }),
   makeJsonResponse({ ok: true, messages: [initialApiMessage, composerApiMessage] }),
+  makeJsonResponse({ ok: true, docs: apiDocs }),
 ];
 
 await withMockFetch(
@@ -138,6 +158,7 @@ await withMockFetch(
     assert.equal(state.activeRoomId, apiRoom.id);
     assert.deepEqual(state.membersByRoomId[apiRoom.id], apiMembers);
     assert.deepEqual(state.messagesByRoomId[apiRoom.id], [initialApiMessage]);
+    assert.deepEqual(state.docsByRoomId[apiRoom.id], apiDocs);
     assert.equal(state.errorMessage, undefined);
 
     assert.deepEqual(
@@ -152,6 +173,7 @@ await withMockFetch(
         `POST /linka/rooms/${apiRoom.id}/messages`,
         `GET /linka/rooms/${apiRoom.id}/members`,
         `GET /linka/rooms/${apiRoom.id}/messages?afterSequence=0&limit=500`,
+        `GET /linka/rooms/${apiRoom.id}/docs`,
       ],
     );
 
@@ -169,9 +191,10 @@ await withMockFetch(
 
     assert.equal(state.source, "api");
     assert.deepEqual(state.messagesByRoomId[apiRoom.id], [initialApiMessage, composerApiMessage]);
+    assert.deepEqual(state.docsByRoomId[apiRoom.id], apiDocs);
     assert.equal(state.isSending, false);
 
-    const composerPost = requests[9];
+    const composerPost = requests[10];
     assert.equal(composerPost?.input, `/linka/rooms/${apiRoom.id}/messages`);
     assert.equal(composerPost?.init.method, "POST");
     assert.deepEqual(JSON.parse(String(composerPost?.init.body)), {
@@ -181,11 +204,12 @@ await withMockFetch(
     });
 
     assert.deepEqual(
-      requests.slice(9).map((request) => `${request.init.method ?? "GET"} ${request.input}`),
+      requests.slice(10).map((request) => `${request.init.method ?? "GET"} ${request.input}`),
       [
         `POST /linka/rooms/${apiRoom.id}/messages`,
         `GET /linka/rooms/${apiRoom.id}/members`,
         `GET /linka/rooms/${apiRoom.id}/messages?afterSequence=0&limit=500`,
+        `GET /linka/rooms/${apiRoom.id}/docs`,
       ],
     );
     assert.equal(responses.length, 0);
@@ -200,6 +224,7 @@ const resetStoreForRealtimeEvents = (): void => {
     activeRoomId: demoRoom.room.id,
     membersByRoomId: { [demoRoom.room.id]: [demoRoom.members[0]] },
     messagesByRoomId: { [demoRoom.room.id]: [initialApiMessage] },
+    docsByRoomId: { [demoRoom.room.id]: apiDocs },
     filesByRoomId: { [demoRoom.room.id]: [] },
     announcementsByRoomId: { [demoRoom.room.id]: [] },
     pinnedItemsByRoomId: { [demoRoom.room.id]: [] },
@@ -274,5 +299,6 @@ assert.equal(
   realtimeState.rooms.filter((roomCandidate) => roomCandidate.id === eventRoom.id).length,
   1,
 );
+assert.deepEqual(realtimeState.docsByRoomId[eventRoom.id], []);
 
 console.log("room store realtime events: ok");
