@@ -28,6 +28,7 @@ const resetStore = (): void => {
     isLoading: true,
     isSending: false,
     errorMessage: undefined,
+    appliedRoomEventKeys: [],
   });
 };
 
@@ -185,3 +186,86 @@ await withMockFetch(
 );
 
 console.log("room store api path: ok");
+
+const resetStoreForRealtimeEvents = (): void => {
+  useRoomStore.setState({
+    rooms: [demoRoom.room],
+    activeRoomId: demoRoom.room.id,
+    membersByRoomId: { [demoRoom.room.id]: [demoRoom.members[0]] },
+    messagesByRoomId: { [demoRoom.room.id]: [initialApiMessage] },
+    filesByRoomId: { [demoRoom.room.id]: [] },
+    announcementsByRoomId: { [demoRoom.room.id]: [] },
+    pinnedItemsByRoomId: { [demoRoom.room.id]: [] },
+    source: "api",
+    isLoading: false,
+    isSending: false,
+    errorMessage: undefined,
+    appliedRoomEventKeys: [],
+  });
+};
+
+resetStoreForRealtimeEvents();
+useRoomStore.getState().applyRoomEvent({
+  cursor: 101,
+  id: "evt_message_101",
+  type: "message.created",
+  roomId: demoRoom.room.id,
+  payload: { message: composerApiMessage },
+});
+useRoomStore.getState().applyRoomEvent({
+  cursor: 101,
+  id: "evt_message_101_duplicate",
+  type: "message.created",
+  roomId: demoRoom.room.id,
+  payload: { message: composerApiMessage },
+});
+let realtimeState = useRoomStore.getState();
+assert.deepEqual(realtimeState.messagesByRoomId[demoRoom.room.id], [
+  initialApiMessage,
+  composerApiMessage,
+]);
+
+resetStoreForRealtimeEvents();
+useRoomStore.getState().applyRoomEvent({
+  cursor: 102,
+  id: "evt_member_102",
+  type: "member.joined",
+  roomId: demoRoom.room.id,
+  payload: { member: demoRoom.members[1] },
+});
+useRoomStore.getState().applyRoomEvent({
+  cursor: 103,
+  id: "evt_member_102",
+  type: "member.joined",
+  roomId: demoRoom.room.id,
+  payload: { member: demoRoom.members[1] },
+});
+realtimeState = useRoomStore.getState();
+assert.deepEqual(realtimeState.membersByRoomId[demoRoom.room.id], [
+  demoRoom.members[0],
+  demoRoom.members[1],
+]);
+
+resetStoreForRealtimeEvents();
+const eventRoom = { ...demoRoom.room, id: "room_realtime_created" as typeof demoRoom.room.id };
+useRoomStore.getState().applyRoomEvent({
+  cursor: 104,
+  id: "evt_room_104",
+  type: "room.created",
+  roomId: eventRoom.id,
+  payload: { room: eventRoom },
+});
+useRoomStore.getState().applyRoomEvent({
+  cursor: 105,
+  id: "evt_room_105",
+  type: "room.created",
+  roomId: eventRoom.id,
+  payload: { room: eventRoom },
+});
+realtimeState = useRoomStore.getState();
+assert.equal(
+  realtimeState.rooms.filter((roomCandidate) => roomCandidate.id === eventRoom.id).length,
+  1,
+);
+
+console.log("room store realtime events: ok");

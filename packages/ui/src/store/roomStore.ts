@@ -12,6 +12,7 @@ import {
 } from "@linka/shared";
 
 import { demoRoom } from "../fixtures/demoRoom.js";
+import type { RealtimeRoomEvent } from "../services/realtime/index.js";
 import {
   addRoomMember,
   createRoom,
@@ -45,9 +46,11 @@ export interface RoomState {
   readonly isLoading: boolean;
   readonly isSending: boolean;
   readonly errorMessage?: string;
+  readonly appliedRoomEventKeys: readonly string[];
   readonly initializeRoomWorkspace: () => Promise<void>;
   readonly selectRoom: (roomId: RoomId) => Promise<void>;
   readonly refreshActiveRoom: () => Promise<void>;
+  readonly applyRoomEvent: (event: RealtimeRoomEvent) => void;
   readonly sendComposerMessage: (text: string) => Promise<void>;
 }
 
@@ -103,6 +106,7 @@ const loadFallback = (set: (state: Partial<RoomState>) => void, error?: unknown)
     isLoading: false,
     isSending: false,
     errorMessage,
+    appliedRoomEventKeys: [],
   });
 };
 
@@ -190,6 +194,29 @@ const makeLocalFallbackMessage = (
   };
 };
 
+const getRoomEventKeys = (event: RealtimeRoomEvent): readonly string[] => [
+  `cursor:${event.cursor}`,
+  `id:${event.id}`,
+];
+
+const hasAppliedRoomEvent = (keys: readonly string[], eventKeys: readonly string[]): boolean =>
+  eventKeys.some((eventKey) => keys.includes(eventKey));
+
+const addRoomEventKeys = (
+  keys: readonly string[],
+  eventKeys: readonly string[],
+): readonly string[] => {
+  const nextKeys = [...keys];
+
+  for (const eventKey of eventKeys) {
+    if (!nextKeys.includes(eventKey)) {
+      nextKeys.push(eventKey);
+    }
+  }
+
+  return nextKeys;
+};
+
 export const useRoomStore = create<RoomState>((set, get) => ({
   rooms: [],
   activeRoomId: undefined,
@@ -202,6 +229,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   isLoading: true,
   isSending: false,
   errorMessage: undefined,
+  appliedRoomEventKeys: [],
   initializeRoomWorkspace: async () => {
     set({ source: "checking", isLoading: true, errorMessage: undefined });
 
@@ -227,6 +255,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         source: "api",
         isLoading: false,
         errorMessage: undefined,
+        appliedRoomEventKeys: [],
       });
     } catch (error) {
       loadFallback(set, error);
@@ -277,6 +306,81 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       const errorMessage = error instanceof Error ? error.message : "Unable to refresh room";
       set({ errorMessage });
     }
+  },
+  applyRoomEvent: (event) => {
+    const eventKeys = getRoomEventKeys(event);
+
+    set((current) => {
+      if (hasAppliedRoomEvent(current.appliedRoomEventKeys, eventKeys)) {
+        return current;
+      }
+
+      const appliedRoomEventKeys = addRoomEventKeys(current.appliedRoomEventKeys, eventKeys);
+
+      if (event.type === "room.created") {
+        const room = event.payload.room;
+        const roomExists = current.rooms.some((candidate) => candidate.id === room.id);
+
+        return {
+          rooms: roomExists ? current.rooms : [...current.rooms, room],
+          membersByRoomId: {
+            ...current.membersByRoomId,
+            [room.id]: current.membersByRoomId[room.id] ?? [],
+          },
+          messagesByRoomId: {
+            ...current.messagesByRoomId,
+            [room.id]: current.messagesByRoomId[room.id] ?? [],
+          },
+          filesByRoomId: {
+            ...current.filesByRoomId,
+            [room.id]: current.filesByRoomId[room.id] ?? [],
+          },
+          announcementsByRoomId: {
+            ...current.announcementsByRoomId,
+            [room.id]: current.announcementsByRoomId[room.id] ?? [],
+          },
+          pinnedItemsByRoomId: {
+            ...current.pinnedItemsByRoomId,
+            [room.id]: current.pinnedItemsByRoomId[room.id] ?? [],
+          },
+          appliedRoomEventKeys,
+        };
+      }
+
+      if (event.type === "member.joined") {
+        const member = event.payload.member;
+        const roomId = event.roomId ?? member.roomId;
+        const currentMembers = current.membersByRoomId[roomId] ?? [];
+
+        return {
+          membersByRoomId: {
+            ...current.membersByRoomId,
+            [roomId]: currentMembers.some((candidate) => candidate.id === member.id)
+              ? currentMembers
+              : [...currentMembers, member],
+          },
+          appliedRoomEventKeys,
+        };
+      }
+
+      const message = event.payload.message;
+      const roomId = event.roomId ?? message.roomId;
+
+      if (roomId !== current.activeRoomId) {
+        return { appliedRoomEventKeys };
+      }
+
+      const currentMessages = current.messagesByRoomId[roomId] ?? [];
+      return {
+        messagesByRoomId: {
+          ...current.messagesByRoomId,
+          [roomId]: currentMessages.some((candidate) => candidate.id === message.id)
+            ? currentMessages
+            : [...currentMessages, message],
+        },
+        appliedRoomEventKeys,
+      };
+    });
   },
   sendComposerMessage: async (text) => {
     const trimmed = text.trim();

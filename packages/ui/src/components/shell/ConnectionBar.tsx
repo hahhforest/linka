@@ -1,4 +1,5 @@
 import { useConnectionStore, type DaemonConnectionStatus } from "../../store/connectionStore.js";
+import { useRealtimeStore, type RealtimeConnectionStatus } from "../../store/realtimeStore.js";
 
 const statusLabel: Record<DaemonConnectionStatus, string> = {
   checking: "checking",
@@ -14,10 +15,19 @@ const statusClassName: Record<DaemonConnectionStatus, string> = {
   error: "bg-danger",
 };
 
+const realtimeStatusLabel: Record<RealtimeConnectionStatus, string> = {
+  idle: "sse idle",
+  connecting: "sse connecting",
+  open: "sse open",
+  error: "sse error",
+};
+
 export const ConnectionBar = () => {
   const status = useConnectionStore((state) => state.status);
   const health = useConnectionStore((state) => state.health);
   const checkDaemonConnection = useConnectionStore((state) => state.checkDaemonConnection);
+  const realtimeStatus = useRealtimeStore((state) => state.status);
+  const realtimeLastCursor = useRealtimeStore((state) => state.lastCursor);
 
   return (
     <header className="flex min-h-[45px] flex-wrap items-center justify-between gap-2 border-b border-line bg-[#fffdf8]/95 px-4 py-2 sm:px-5">
@@ -27,7 +37,8 @@ export const ConnectionBar = () => {
           <p className="truncate text-sm font-semibold">LinkA Daemon</p>
           <p className="truncate font-mono text-xs text-muted">
             GET /linka/health · {statusLabel[status]}
-            {health?.version ? ` · ${health.version}` : ""}
+            {health?.version ? ` · ${health.version}` : ""} · {realtimeStatusLabel[realtimeStatus]}
+            {realtimeLastCursor > 0 ? ` · cursor ${realtimeLastCursor}` : ""}
           </p>
         </div>
       </div>
