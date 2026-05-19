@@ -4,6 +4,9 @@ import type { RoomHarnessRunner } from "../api/rooms.js";
 import type { DaemonContainer } from "../container/index.js";
 import { startHarnessRun } from "./run-service.js";
 
+export const DEFAULT_OPENCODE_MODEL = "azure/gpt-5.5";
+export const DEFAULT_OPENCODE_VARIANT = "xhigh";
+
 export interface CreateOpenCodeRoomHarnessRunnerOptions {
   readonly container: Pick<
     DaemonContainer,
@@ -15,7 +18,11 @@ export interface CreateOpenCodeRoomHarnessRunnerOptions {
 
 export const createOpenCodeRoomHarnessRunner = ({
   container,
-  adapter = new OpenCodeCliRuntimeAdapter({ agent: "build" }),
+  adapter = new OpenCodeCliRuntimeAdapter({
+    agent: "build",
+    model: DEFAULT_OPENCODE_MODEL,
+    variant: DEFAULT_OPENCODE_VARIANT,
+  }),
   now,
 }: CreateOpenCodeRoomHarnessRunnerOptions): RoomHarnessRunner =>
   async (input) => {

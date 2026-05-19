@@ -33,6 +33,8 @@ import { createMessageStore } from "../store/message-store.js";
 import { createRoomStore } from "../store/room-store.js";
 import {
   createOpenCodeRoomHarnessRunner,
+  DEFAULT_OPENCODE_MODEL,
+  DEFAULT_OPENCODE_VARIANT,
   type CreateOpenCodeRoomHarnessRunnerOptions,
 } from "./opencode-room-runner.js";
 
@@ -65,6 +67,9 @@ const capabilities: RuntimeAdapterCapabilities = {
   supportsDocContext: true,
   supportsCancellation: false,
 };
+
+assert.equal(DEFAULT_OPENCODE_MODEL, "azure/gpt-5.5");
+assert.equal(DEFAULT_OPENCODE_VARIANT, "xhigh");
 
 interface OpenCodeRunnerContext {
   readonly handle: DatabaseHandle;
