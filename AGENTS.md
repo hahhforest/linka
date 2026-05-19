@@ -36,4 +36,18 @@
 
 * 修改应保持范围小，优先遵循项目已有风格。
 
+* 修改代码前先阅读 `inner_docs/nightly-agent-team-operating-model.html`，理解当前并行协作和质量门槛。
+
+* 在分配的 `.worktree/<lane>` 目录内工作，不编辑其他 lane，也不在 main checkout 里做并行开发任务。
+
+* 主线只合入已通过要求验证的绿色分支。
+
+* 除非任务明确要求修改契约，否则将 `shared` 和 `config` 的公开契约视为冻结。
+
+* 严格停留在任务边界内，不回退、覆盖或清理无关 worker / 用户改动。
+
+* 不要把 build、worker、task status 写入 Room data。
+
+* Phase 00 scaffold 类修改需要运行 `pnpm install`、`pnpm typecheck`、`pnpm build` 和 `pnpm test`。
+
 * 完成后汇报改了哪些文件，以及是否运行了验证命令。
