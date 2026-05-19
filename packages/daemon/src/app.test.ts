@@ -536,6 +536,151 @@ test("doc API lists room docs and returns doc detail with revisions and comments
   }
 });
 
+test("doc API creates docs through room context", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Create Docs Room", topic: "write docs" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+
+    const memberResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_doc_creator", kind: "human", displayName: "Doc Creator" }),
+      },
+    );
+    const memberBody = (await memberResponse.json()) as { ok: true; member: { id: string } };
+    const eventCountBeforeCreate = container.eventStore.listAfter(0, 20).length;
+
+    const createDocResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/docs`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Create API Brief",
+          body: "# Brief\n\nCreated through the API.",
+          createdByMemberId: memberBody.member.id,
+        }),
+      },
+    );
+    const createDocBody = (await createDocResponse.json()) as { ok: true; doc: Doc };
+
+    assert.equal(createRoomResponse.status, 201);
+    assert.equal(memberResponse.status, 201);
+    assert.equal(createDocResponse.status, 201);
+    assert.match(createDocBody.doc.id, /^doc_/);
+    assert.equal(createDocBody.doc.contextRoomId, createRoomBody.room.id);
+    assert.equal(createDocBody.doc.title, "Create API Brief");
+    assert.equal(createDocBody.doc.body, "# Brief\n\nCreated through the API.");
+    assert.equal(createDocBody.doc.format, "markdown");
+    assert.equal(createDocBody.doc.status, "active");
+    assert.equal(createDocBody.doc.createdByMemberId, memberBody.member.id);
+    assert.deepEqual(createDocBody.doc.visibility, { scope: "room" });
+    assert.equal(container.eventStore.listAfter(0, 20).length, eventCountBeforeCreate);
+
+    const listResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/docs`,
+    );
+    const listBody = (await listResponse.json()) as { ok: true; docs: readonly Doc[] };
+
+    assert.equal(listResponse.status, 200);
+    assert.deepEqual(listBody, { ok: true, docs: [createDocBody.doc] });
+
+    const detailResponse = await app.request(`http://127.0.0.1/linka/docs/${createDocBody.doc.id}`);
+    const detailBody = (await detailResponse.json()) as {
+      ok: true;
+      doc: Doc;
+      revisions: readonly DocRevision[];
+      comments: readonly DocComment[];
+    };
+
+    assert.equal(detailResponse.status, 200);
+    assert.deepEqual(detailBody, {
+      ok: true,
+      doc: createDocBody.doc,
+      revisions: [],
+      comments: [],
+    });
+  } finally {
+    container.close();
+  }
+});
+
+test("doc API rejects missing and cross-room creator members", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const firstRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "First Docs Room" }),
+    });
+    const secondRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Second Docs Room" }),
+    });
+    const firstRoomBody = (await firstRoomResponse.json()) as { ok: true; room: { id: string } };
+    const secondRoomBody = (await secondRoomResponse.json()) as { ok: true; room: { id: string } };
+
+    const memberResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${firstRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_cross_doc_creator", kind: "human", displayName: "Creator" }),
+      },
+    );
+    const memberBody = (await memberResponse.json()) as { ok: true; member: { id: string } };
+
+    const missingMemberResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${firstRoomBody.room.id}/docs`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Missing Member", createdByMemberId: "rmem_missing" }),
+      },
+    );
+    const missingMemberBody = await missingMemberResponse.json();
+
+    assert.equal(firstRoomResponse.status, 201);
+    assert.equal(secondRoomResponse.status, 201);
+    assert.equal(memberResponse.status, 201);
+    assert.equal(missingMemberResponse.status, 404);
+    assert.deepEqual(missingMemberBody, {
+      ok: false,
+      error: { code: "NOT_FOUND", message: "creator member not found" },
+    });
+
+    const crossRoomMemberResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${secondRoomBody.room.id}/docs`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Wrong Room Member", createdByMemberId: memberBody.member.id }),
+      },
+    );
+    const crossRoomMemberBody = await crossRoomMemberResponse.json();
+
+    assert.equal(crossRoomMemberResponse.status, 404);
+    assert.deepEqual(crossRoomMemberBody, {
+      ok: false,
+      error: { code: "NOT_FOUND", message: "creator member not found" },
+    });
+  } finally {
+    container.close();
+  }
+});
+
 test("doc API returns uniform errors for bad ids and missing docs", async () => {
   const container = createTestContainer();
 
