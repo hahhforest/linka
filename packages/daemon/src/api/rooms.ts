@@ -61,6 +61,19 @@ type MemberListResponse = { readonly ok: true; readonly members: readonly RoomMe
 type MessageResponse = { readonly ok: true; readonly message: RoomMessage };
 type MessageListResponse = { readonly ok: true; readonly messages: readonly RoomMessage[] };
 
+export interface RoomHarnessRunnerInput {
+  readonly room: Room;
+  readonly members: readonly RoomMember[];
+  readonly message: RoomMessage;
+  readonly targetMember: RoomMember;
+}
+
+export type RoomHarnessRunner = (input: RoomHarnessRunnerInput) => void | Promise<void>;
+
+export interface CreateRoomsRouteOptions {
+  readonly harnessRunner?: RoomHarnessRunner;
+}
+
 const defaultVisibility: RoomVisibility = { scope: "room" };
 const defaultNotificationPolicy: RoomNotificationPolicy = { level: "normal" };
 
@@ -351,60 +364,74 @@ const publishMessageCreated = (container: DaemonContainer, roomId: Room["id"], m
   });
 };
 
-const appendFakeHarnessReply = (
-  container: DaemonContainer,
-  room: Room,
+const getMentionedHarnessTarget = (
   members: readonly RoomMember[],
   message: RoomMessage,
-): void => {
+): RoomMember | undefined => {
   if (!["text", "instruction", "intervention", "question"].includes(message.kind)) {
-    return;
+    return undefined;
   }
 
   const messageSender = message.sender;
   if (messageSender.kind !== "member") {
-    return;
+    return undefined;
   }
 
   const sender = members.find((member) => member.id === messageSender.memberId);
   if (!sender || sender.kind === "agent") {
-    return;
+    return undefined;
   }
 
-  const mentionedAgent = getMentionedMemberIds(message)
+  return getMentionedMemberIds(message)
     .map((memberId) => members.find((member) => member.id === memberId))
     .find((member): member is RoomMember => member?.kind === "agent");
+};
 
-  if (!mentionedAgent) {
-    return;
+const createDefaultHarnessRunner =
+  (container: DaemonContainer): RoomHarnessRunner =>
+  ({ room, members, message, targetMember }) => {
+    const recentMessages = container.messageStore.listMessages(room.id, {
+      afterSequence: 0,
+      limit: 20,
+    });
+    const reply = createFakeHarnessReply({
+      room,
+      members,
+      messages: recentMessages,
+      targetMember,
+    });
+    const replyMessage = container.messageStore.appendMessage({
+      id: createMessageApiId(),
+      roomId: room.id,
+      sender: { kind: "member", memberId: targetMember.id },
+      kind: "text",
+      createdAt: unixMs(Date.now()),
+      text: reply.text,
+      replyTo: { messageId: message.id },
+      visibility: defaultVisibility,
+      notification: defaultNotificationPolicy,
+    });
+
+    publishMessageCreated(container, room.id, replyMessage);
+  };
+
+const logHarnessRunnerError = (error: unknown): void => {
+  console.error("room harness runner failed", error);
+};
+
+const runHarnessRunner = (harnessRunner: RoomHarnessRunner, input: RoomHarnessRunnerInput): void => {
+  try {
+    void Promise.resolve(harnessRunner(input)).catch(logHarnessRunnerError);
+  } catch (error) {
+    logHarnessRunnerError(error);
   }
-
-  const recentMessages = container.messageStore.listMessages(room.id, { afterSequence: 0, limit: 20 });
-  const reply = createFakeHarnessReply({
-    room,
-    members,
-    messages: recentMessages,
-    targetMember: mentionedAgent,
-  });
-  const replyMessage = container.messageStore.appendMessage({
-    id: createMessageApiId(),
-    roomId: room.id,
-    sender: { kind: "member", memberId: mentionedAgent.id },
-    kind: "text",
-    createdAt: unixMs(Date.now()),
-    text: reply.text,
-    replyTo: { messageId: message.id },
-    visibility: defaultVisibility,
-    notification: defaultNotificationPolicy,
-  });
-
-  publishMessageCreated(container, room.id, replyMessage);
 };
 
 const appendMessage = (
   container: DaemonContainer,
   id: Room["id"],
   body: AppendMessageRequestBody,
+  harnessRunner: RoomHarnessRunner,
 ): RoomMessage => {
   const room = ensureRoom(container, id);
   const object = assertBodyObject(body);
@@ -430,7 +457,11 @@ const appendMessage = (
   });
 
   publishMessageCreated(container, id, message);
-  appendFakeHarnessReply(container, room, members, message);
+
+  const targetMember = getMentionedHarnessTarget(members, message);
+  if (targetMember) {
+    runHarnessRunner(harnessRunner, { room, members, message, targetMember });
+  }
 
   return message;
 };
@@ -447,8 +478,12 @@ const handleRouteError = (c: Parameters<typeof errorResponse>[0], error: unknown
   throw error;
 };
 
-export function createRoomsRoute(container: DaemonContainer): Hono {
+export function createRoomsRoute(
+  container: DaemonContainer,
+  options: CreateRoomsRouteOptions = {},
+): Hono {
   const app = new Hono();
+  const harnessRunner = options.harnessRunner ?? createDefaultHarnessRunner(container);
 
   app.post("/rooms", async (c) => {
     try {
@@ -504,7 +539,12 @@ export function createRoomsRoute(container: DaemonContainer): Hono {
   app.post("/rooms/:roomId/messages", async (c) => {
     try {
       const id = parseRoomPathId(c.req.param("roomId"));
-      const message = appendMessage(container, id, await readJsonBody<AppendMessageRequestBody>(c.req));
+      const message = appendMessage(
+        container,
+        id,
+        await readJsonBody<AppendMessageRequestBody>(c.req),
+        harnessRunner,
+      );
       const response: MessageResponse = { ok: true, message };
       return c.json(response, 201);
     } catch (error) {

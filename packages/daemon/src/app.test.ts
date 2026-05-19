@@ -14,6 +14,7 @@ import {
 } from "@linka/shared";
 
 import { createDaemonApp } from "./app.js";
+import type { RoomHarnessRunnerInput } from "./api/rooms.js";
 import { createDaemonContainer, type DaemonContainer } from "./container/index.js";
 import type { PersistedDaemonEvent } from "./store/event-store.js";
 
@@ -431,6 +432,204 @@ test("fake harness does not reply to agent-authored mentions", async () => {
 
     assert.equal(historyBody.messages.length, 1);
   } finally {
+    container.close();
+  }
+});
+
+test("injected room harness runner replaces fake reply and ignores agent-authored mentions", async () => {
+  const container = createTestContainer();
+  const harnessCalls: RoomHarnessRunnerInput[] = [];
+
+  try {
+    const app = createDaemonApp(container, {
+      rooms: {
+        harnessRunner: (input) => {
+          harnessCalls.push(input);
+        },
+      },
+    });
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Harness Hook Room" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+    const humanResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_hook_human", kind: "human", displayName: "Human" }),
+      },
+    );
+    const firstAgentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_hook_agent_a", kind: "agent", displayName: "Agent A" }),
+      },
+    );
+    const secondAgentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_hook_agent_b", kind: "agent", displayName: "Agent B" }),
+      },
+    );
+    const humanBody = (await humanResponse.json()) as { ok: true; member: { id: string } };
+    const firstAgentBody = (await firstAgentResponse.json()) as { ok: true; member: { id: string } };
+    const secondAgentBody = (await secondAgentResponse.json()) as { ok: true; member: { id: string } };
+
+    const humanMessageResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderMemberId: humanBody.member.id,
+          kind: "instruction",
+          text: "@Agent A please inspect this room.",
+          mentions: [{ memberId: firstAgentBody.member.id, displayText: "@Agent A" }],
+        }),
+      },
+    );
+    const humanMessageBody = (await humanMessageResponse.json()) as { ok: true; message: { id: string } };
+
+    assert.equal(humanMessageResponse.status, 201);
+    assert.equal(harnessCalls.length, 1);
+
+    const harnessCall = harnessCalls[0];
+    assert.ok(harnessCall);
+    assert.equal(harnessCall.room.id, createRoomBody.room.id);
+    assert.equal(harnessCall.message.id, humanMessageBody.message.id);
+    assert.equal(harnessCall.targetMember.id, firstAgentBody.member.id);
+
+    const historyAfterHumanResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages?afterSequence=0&limit=10`,
+    );
+    const historyAfterHumanBody = (await historyAfterHumanResponse.json()) as {
+      ok: true;
+      messages: readonly { sequence: number; sender: { memberId?: string } }[];
+    };
+
+    assert.equal(historyAfterHumanBody.messages.length, 1);
+    assert.equal(historyAfterHumanBody.messages[0]?.sender.memberId, humanBody.member.id);
+
+    const agentMessageResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderMemberId: firstAgentBody.member.id,
+          text: "@Agent B please continue",
+          mentions: [{ memberId: secondAgentBody.member.id, displayText: "@Agent B" }],
+        }),
+      },
+    );
+
+    assert.equal(agentMessageResponse.status, 201);
+    assert.equal(harnessCalls.length, 1);
+
+    const historyAfterAgentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages?afterSequence=0&limit=10`,
+    );
+    const historyAfterAgentBody = (await historyAfterAgentResponse.json()) as {
+      ok: true;
+      messages: readonly { sequence: number; sender: { memberId?: string } }[];
+    };
+
+    assert.deepEqual(
+      historyAfterAgentBody.messages.map((message) => message.sequence),
+      [1, 2],
+    );
+    assert.deepEqual(
+      historyAfterAgentBody.messages.map((message) => message.sender.memberId),
+      [humanBody.member.id, firstAgentBody.member.id],
+    );
+  } finally {
+    container.close();
+  }
+});
+
+test("injected room harness runner failure does not fail message POST", async () => {
+  const container = createTestContainer();
+  const harnessCalls: RoomHarnessRunnerInput[] = [];
+  const consoleErrors: unknown[][] = [];
+  const originalConsoleError = console.error;
+  console.error = (...args: Parameters<typeof console.error>) => {
+    consoleErrors.push(args);
+  };
+
+  try {
+    const app = createDaemonApp(container, {
+      rooms: {
+        harnessRunner: async (input) => {
+          harnessCalls.push(input);
+          throw new Error("runner failed");
+        },
+      },
+    });
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Harness Failure Room" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+    const humanResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_failure_human", kind: "human", displayName: "Human" }),
+      },
+    );
+    const agentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_failure_agent", kind: "agent", displayName: "Agent" }),
+      },
+    );
+    const humanBody = (await humanResponse.json()) as { ok: true; member: { id: string } };
+    const agentBody = (await agentResponse.json()) as { ok: true; member: { id: string } };
+
+    const messageResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderMemberId: humanBody.member.id,
+          kind: "instruction",
+          text: "@Agent please inspect this room.",
+          mentions: [{ memberId: agentBody.member.id, displayText: "@Agent" }],
+        }),
+      },
+    );
+
+    assert.equal(messageResponse.status, 201);
+    assert.equal(harnessCalls.length, 1);
+    assert.equal(harnessCalls[0]?.targetMember.id, agentBody.member.id);
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(consoleErrors.length, 1);
+
+    const historyResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages?afterSequence=0&limit=10`,
+    );
+    const historyBody = (await historyResponse.json()) as {
+      ok: true;
+      messages: readonly { sender: { memberId?: string } }[];
+    };
+
+    assert.equal(historyBody.messages.length, 1);
+    assert.equal(historyBody.messages[0]?.sender.memberId, humanBody.member.id);
+  } finally {
+    console.error = originalConsoleError;
     container.close();
   }
 });

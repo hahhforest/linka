@@ -5,10 +5,17 @@ import { createDocsRoute } from "./api/docs.js";
 import { errorResponse, handleDaemonError } from "./api/errors.js";
 import { createEventsRoute } from "./api/events.js";
 import { createHealthRoute } from "./api/health.js";
-import { createRoomsRoute } from "./api/rooms.js";
+import { createRoomsRoute, type CreateRoomsRouteOptions } from "./api/rooms.js";
 import type { DaemonContainer } from "./container/index.js";
 
-export function createDaemonApp(container: DaemonContainer): Hono {
+export interface CreateDaemonAppOptions {
+  readonly rooms?: CreateRoomsRouteOptions;
+}
+
+export function createDaemonApp(
+  container: DaemonContainer,
+  options: CreateDaemonAppOptions = {},
+): Hono {
   const app = new Hono();
   const linka = app.basePath("/linka");
 
@@ -18,7 +25,7 @@ export function createDaemonApp(container: DaemonContainer): Hono {
   linka.route("/", createHealthRoute(container));
   linka.route("/", createEventsRoute(container));
   linka.route("/", createDevEventsRoute(container));
-  linka.route("/", createRoomsRoute(container));
+  linka.route("/", createRoomsRoute(container, options.rooms));
   linka.route("/", createDocsRoute(container));
 
   return app;
