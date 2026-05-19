@@ -30,6 +30,32 @@
 
 * 新增重要文档时，要确认它和现有 `README.md`、`README_EN.md`、`docs/` 内容没有明显冲突。
 
+## Code Agent 线索索引
+
+### 公开文档
+
+* `docs/vision.md`：项目愿景和对外叙事的源头。修改定位、口号、产品方向前先读。
+
+* `docs/PRD.md`：产品定义、核心抽象、MVP 范围和成功标准。修改产品行为或用户体验边界前先读。
+
+* `docs/TECH.md`：技术架构、Daemon、Room Runtime、Harness、runtime adapter、存储和实时协议的主线。修改架构或跨包边界前先读。
+
+* `docs/room-oo-reference.md`：Room 的 IM 群聊对象边界。涉及 Room、Member、Message、Permission、runtime 边界时必须对照。
+
+* `docs/plans/`：分阶段执行计划和已完成 lane 的约束。接手具体实现任务时，先找同阶段或相邻阶段的 plan。
+
+### 内部资料
+
+* `inner_docs/`：内部研究和构建报告目录，不进公开仓库；需要背景、历史讨论或阶段细节时再进入查看，不在 `AGENTS.md` 展开具体内容。
+
+### Agent 本地能力
+
+* `.agents/skills/` 保存项目本地 agent skill；创建或改写 `inner_docs/*.html` 时优先使用 `.agents/skills/linka-html-doc/SKILL.md` 的风格约束。
+
+### 对外入口
+
+* `README.md` 和 `README_EN.md` 是对外叙述入口；修改项目定位或产品表达时需要同步检查两者。
+
 ## 工作方式
 
 * 开始修改前先检查当前 git 状态，识别已有用户改动，不能覆盖或回退用户未要求处理的内容。
