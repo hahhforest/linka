@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { useRoomStore } from "../../store/roomStore.js";
 
 const emptyMembers = [] as const;
@@ -19,6 +21,8 @@ const getBodyFirstLine = (body: string): string | undefined =>
     .find((line) => line.length > 0);
 
 export const MemberRail = () => {
+  const [docTitle, setDocTitle] = useState("");
+  const [docBody, setDocBody] = useState("");
   const activeRoomId = useRoomStore((state) => state.activeRoomId);
   const members = useRoomStore((state) =>
     activeRoomId ? (state.membersByRoomId[activeRoomId] ?? emptyMembers) : emptyMembers,
@@ -31,6 +35,9 @@ export const MemberRail = () => {
       ? (state.announcementsByRoomId[activeRoomId] ?? emptyAnnouncements)
       : emptyAnnouncements,
   );
+  const isCreatingDoc = useRoomStore((state) => state.isCreatingDoc);
+  const createActiveRoomDoc = useRoomStore((state) => state.createActiveRoomDoc);
+  const trimmedDocTitle = docTitle.trim();
 
   return (
     <aside className="border-t border-line bg-[#f3efe6]/95 p-4 lg:border-l lg:border-t-0 lg:p-5">
@@ -68,6 +75,62 @@ export const MemberRail = () => {
 
       <section className="mt-6 border-t border-line pt-5">
         <h2 className="text-sm font-semibold">协作文档</h2>
+        <form
+          className="mt-3 grid gap-2 rounded-lg border border-line bg-panel/80 p-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const nextTitle = docTitle.trim();
+
+            if (nextTitle.length === 0 || isCreatingDoc) {
+              return;
+            }
+
+            const nextBody = docBody.trim();
+
+            void createActiveRoomDoc({
+              title: nextTitle,
+              ...(nextBody.length > 0 ? { body: nextBody } : {}),
+            }).then(() => {
+              if (useRoomStore.getState().errorMessage === undefined) {
+                setDocTitle("");
+                setDocBody("");
+              }
+            });
+          }}
+        >
+          <label className="sr-only" htmlFor="room-doc-title">
+            文档标题
+          </label>
+          <input
+            id="room-doc-title"
+            className="min-w-0 rounded-md border border-line bg-paper px-2.5 py-2 text-sm text-ink placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-70"
+            maxLength={80}
+            placeholder="标题"
+            type="text"
+            value={docTitle}
+            disabled={isCreatingDoc}
+            onChange={(event) => setDocTitle(event.target.value)}
+          />
+          <label className="sr-only" htmlFor="room-doc-body">
+            文档正文
+          </label>
+          <textarea
+            id="room-doc-body"
+            className="min-h-16 resize-none rounded-md border border-line bg-paper px-2.5 py-2 text-sm leading-5 text-ink placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-70"
+            maxLength={240}
+            placeholder="正文可选"
+            value={docBody}
+            disabled={isCreatingDoc}
+            onChange={(event) => setDocBody(event.target.value)}
+          />
+          <button
+            className="rounded-md bg-ink px-3 py-1.5 text-sm font-semibold text-white hover:bg-linka disabled:cursor-not-allowed disabled:bg-muted"
+            type="submit"
+            disabled={trimmedDocTitle.length === 0 || isCreatingDoc}
+          >
+            {isCreatingDoc ? "创建中" : "新建 Doc"}
+          </button>
+        </form>
         {docs.length > 0 ? (
           <div className="mt-3 grid gap-2">
             {docs.map((doc) => {
