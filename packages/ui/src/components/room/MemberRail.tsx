@@ -1,9 +1,20 @@
-import { selectActiveRoomSnapshot, useRoomStore } from "../../store/roomStore.js";
+import { useRoomStore } from "../../store/roomStore.js";
+
+const emptyMembers = [] as const;
+const emptyAnnouncements = [] as const;
 
 const memberAccent = (kind: string): string => (kind === "agent" ? "bg-linka" : "bg-signal");
 
 export const MemberRail = () => {
-  const snapshot = useRoomStore(selectActiveRoomSnapshot);
+  const activeRoomId = useRoomStore((state) => state.activeRoomId);
+  const members = useRoomStore((state) =>
+    activeRoomId ? (state.membersByRoomId[activeRoomId] ?? emptyMembers) : emptyMembers,
+  );
+  const announcements = useRoomStore((state) =>
+    activeRoomId
+      ? (state.announcementsByRoomId[activeRoomId] ?? emptyAnnouncements)
+      : emptyAnnouncements,
+  );
 
   return (
     <aside className="border-t border-line bg-[#f3efe6]/95 p-4 lg:border-l lg:border-t-0 lg:p-5">
@@ -11,7 +22,7 @@ export const MemberRail = () => {
         <p className="font-mono text-xs uppercase text-linka">member rail</p>
         <h2 className="mt-1 text-lg font-semibold">现场成员</h2>
         <div className="mt-4 grid gap-2">
-          {snapshot.members.map((member) => (
+          {members.map((member) => (
             <article key={member.id} className="rounded-lg border border-line bg-panel p-3">
               <div className="flex items-center gap-3">
                 <span
@@ -39,11 +50,11 @@ export const MemberRail = () => {
         </div>
       </section>
 
-      {snapshot.announcements.length > 0 ? (
+      {announcements.length > 0 ? (
         <section className="mt-6 border-t border-line pt-5">
           <h2 className="text-sm font-semibold">公告板</h2>
           <div className="mt-3 grid gap-2">
-            {snapshot.announcements.map((announcement) => (
+            {announcements.map((announcement) => (
               <article key={announcement.id} className="rounded-lg border border-line bg-panel p-3">
                 <h3 className="text-sm font-semibold">{announcement.title ?? "公告"}</h3>
                 <p className="mt-2 break-words text-sm leading-5 text-muted">{announcement.body}</p>
