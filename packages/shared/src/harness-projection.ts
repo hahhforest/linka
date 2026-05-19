@@ -1,3 +1,4 @@
+import type { Doc, DocComment } from "./doc.js";
 import type { ParticipantId, RoomId, RoomMemberId } from "./ids.js";
 import type {
   Announcement,
@@ -118,6 +119,39 @@ export type ProjectedRoomFile = Pick<
   "id" | "roomId" | "name" | "createdAt" | "addedBy" | "contentType" | "sizeBytes" | "uri"
 >;
 
+export type ProjectedDoc = Pick<
+  Doc,
+  | "id"
+  | "contextRoomId"
+  | "title"
+  | "format"
+  | "status"
+  | "body"
+  | "createdAt"
+  | "updatedAt"
+  | "createdByMemberId"
+  | "currentRevisionId"
+  | "visibility"
+>;
+
+export type ProjectedDocComment = Pick<
+  DocComment,
+  | "id"
+  | "docId"
+  | "contextRoomId"
+  | "revisionId"
+  | "body"
+  | "status"
+  | "createdAt"
+  | "updatedAt"
+  | "createdByMemberId"
+  | "resolvedAt"
+  | "resolvedByMemberId"
+  | "mentions"
+  | "anchor"
+  | "visibility"
+>;
+
 export interface HarnessProjection {
   readonly request: HarnessProjectionRequest;
   readonly room: ProjectedRoom;
@@ -128,6 +162,8 @@ export interface HarnessProjection {
   readonly announcements: readonly ProjectedAnnouncement[];
   readonly pins: readonly ProjectedPinnedItem[];
   readonly files: readonly ProjectedRoomFile[];
+  readonly docs: readonly ProjectedDoc[];
+  readonly docComments: readonly ProjectedDocComment[];
 }
 
 export const isHarnessProjectionTriggerType = (

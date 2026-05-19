@@ -9,6 +9,12 @@ export type AttachmentId = Brand<string, "AttachmentId">;
 export type RoomFileId = Brand<string, "RoomFileId">;
 export type AnnouncementId = Brand<string, "AnnouncementId">;
 export type PinnedItemId = Brand<string, "PinnedItemId">;
+export type DocId = Brand<string, "DocId">;
+export type DocRevisionId = Brand<string, "DocRevisionId">;
+export type DocCommentId = Brand<string, "DocCommentId">;
+export type HarnessRunId = Brand<string, "HarnessRunId">;
+export type RuntimeSessionId = Brand<string, "RuntimeSessionId">;
+export type RuntimeEventId = Brand<string, "RuntimeEventId">;
 
 export const ID_PREFIXES = {
   room: "room_",
@@ -20,6 +26,12 @@ export const ID_PREFIXES = {
   roomFile: "rfile_",
   announcement: "ann_",
   pinnedItem: "pin_",
+  doc: "doc_",
+  docRevision: "drev_",
+  docComment: "dcmt_",
+  harnessRun: "hrun_",
+  runtimeSession: "rsess_",
+  runtimeEvent: "rtevt_",
 } as const;
 
 type IdPrefixKey = keyof typeof ID_PREFIXES;
@@ -40,7 +52,19 @@ type IdOf<Key extends IdPrefixKey> = Key extends "room"
               ? RoomFileId
               : Key extends "announcement"
                 ? AnnouncementId
-                : PinnedItemId;
+                : Key extends "pinnedItem"
+                  ? PinnedItemId
+                  : Key extends "doc"
+                    ? DocId
+                    : Key extends "docRevision"
+                      ? DocRevisionId
+                      : Key extends "docComment"
+                        ? DocCommentId
+                        : Key extends "harnessRun"
+                          ? HarnessRunId
+                          : Key extends "runtimeSession"
+                            ? RuntimeSessionId
+                            : RuntimeEventId;
 
 const ID_SUFFIX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
@@ -132,3 +156,42 @@ export const parsePinnedItemId = (value: unknown): PinnedItemId | undefined =>
   parsePrefixedId(value, "pinnedItem");
 export const pinnedItemId = (value: string): PinnedItemId =>
   toPrefixedId(value, "pinnedItem", "PinnedItemId");
+
+export const isDocId = (value: unknown): value is DocId => isPrefixedId(value, "doc");
+export const parseDocId = (value: unknown): DocId | undefined => parsePrefixedId(value, "doc");
+export const docId = (value: string): DocId => toPrefixedId(value, "doc", "DocId");
+
+export const isDocRevisionId = (value: unknown): value is DocRevisionId =>
+  isPrefixedId(value, "docRevision");
+export const parseDocRevisionId = (value: unknown): DocRevisionId | undefined =>
+  parsePrefixedId(value, "docRevision");
+export const docRevisionId = (value: string): DocRevisionId =>
+  toPrefixedId(value, "docRevision", "DocRevisionId");
+
+export const isDocCommentId = (value: unknown): value is DocCommentId =>
+  isPrefixedId(value, "docComment");
+export const parseDocCommentId = (value: unknown): DocCommentId | undefined =>
+  parsePrefixedId(value, "docComment");
+export const docCommentId = (value: string): DocCommentId =>
+  toPrefixedId(value, "docComment", "DocCommentId");
+
+export const isHarnessRunId = (value: unknown): value is HarnessRunId =>
+  isPrefixedId(value, "harnessRun");
+export const parseHarnessRunId = (value: unknown): HarnessRunId | undefined =>
+  parsePrefixedId(value, "harnessRun");
+export const harnessRunId = (value: string): HarnessRunId =>
+  toPrefixedId(value, "harnessRun", "HarnessRunId");
+
+export const isRuntimeSessionId = (value: unknown): value is RuntimeSessionId =>
+  isPrefixedId(value, "runtimeSession");
+export const parseRuntimeSessionId = (value: unknown): RuntimeSessionId | undefined =>
+  parsePrefixedId(value, "runtimeSession");
+export const runtimeSessionId = (value: string): RuntimeSessionId =>
+  toPrefixedId(value, "runtimeSession", "RuntimeSessionId");
+
+export const isRuntimeEventId = (value: unknown): value is RuntimeEventId =>
+  isPrefixedId(value, "runtimeEvent");
+export const parseRuntimeEventId = (value: unknown): RuntimeEventId | undefined =>
+  parsePrefixedId(value, "runtimeEvent");
+export const runtimeEventId = (value: string): RuntimeEventId =>
+  toPrefixedId(value, "runtimeEvent", "RuntimeEventId");
