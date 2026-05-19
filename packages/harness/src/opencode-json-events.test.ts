@@ -71,17 +71,65 @@ assert.deepEqual(textEvent.payload, {
   data: { type: "message", text: "OpenCode streamed text." },
 });
 
+const nestedTextEvent = {
+  type: "text",
+  timestamp: 1_779_213_249_891,
+  sessionID: "opencode-json-session",
+  part: { type: "text", text: "LinkA real opencode room reply ok" },
+};
+const nestedRuntimeEvent = toOpenCodeRuntimeEvent({
+  event: nestedTextEvent,
+  run,
+  sequence: 12,
+  createdAt: now,
+});
+
+assert.equal(nestedRuntimeEvent.runId, runId);
+assert.equal(nestedRuntimeEvent.roomId, testRoomId);
+assert.equal(nestedRuntimeEvent.targetMemberId, targetMemberId);
+assert.equal(nestedRuntimeEvent.sequence, 12);
+assert.equal(nestedRuntimeEvent.type, "adapter.output");
+assert.deepEqual(nestedRuntimeEvent.payload, {
+  kind: "adapter_output",
+  stream: "summary",
+  text: "LinkA real opencode room reply ok",
+  data: nestedTextEvent,
+});
+
+const blankNestedTextEvent = {
+  type: "text",
+  timestamp: 1_779_213_249_892,
+  sessionID: "opencode-json-session",
+  part: { type: "text", text: "  \n\t  " },
+};
+const blankNestedMetadataEvent = toOpenCodeRuntimeEvent({
+  event: blankNestedTextEvent,
+  run,
+  sequence: 13,
+  createdAt: now,
+});
+
+assert.equal(blankNestedMetadataEvent.runId, runId);
+assert.equal(blankNestedMetadataEvent.roomId, testRoomId);
+assert.equal(blankNestedMetadataEvent.targetMemberId, targetMemberId);
+assert.equal(blankNestedMetadataEvent.sequence, 13);
+assert.equal(blankNestedMetadataEvent.type, "run.updated");
+assert.deepEqual(blankNestedMetadataEvent.payload, {
+  kind: "adapter_metadata",
+  data: blankNestedTextEvent,
+});
+
 const errorEvent = toOpenCodeRuntimeEvent({
   event: { type: "assistant_error", error: "OpenCode failed.", code: "E_OPENCODE" },
   run,
-  sequence: 12,
+  sequence: 14,
   createdAt: now,
 });
 
 assert.equal(errorEvent.runId, runId);
 assert.equal(errorEvent.roomId, testRoomId);
 assert.equal(errorEvent.targetMemberId, targetMemberId);
-assert.equal(errorEvent.sequence, 12);
+assert.equal(errorEvent.sequence, 14);
 assert.equal(errorEvent.type, "adapter.error");
 assert.deepEqual(errorEvent.payload, {
   kind: "adapter_error",
@@ -94,14 +142,14 @@ const unknownEvent = { type: "session.updated", id: "opaque-session", status: "b
 const metadataEvent = toOpenCodeRuntimeEvent({
   event: unknownEvent,
   run,
-  sequence: 13,
+  sequence: 15,
   createdAt: now,
 });
 
 assert.equal(metadataEvent.runId, runId);
 assert.equal(metadataEvent.roomId, testRoomId);
 assert.equal(metadataEvent.targetMemberId, targetMemberId);
-assert.equal(metadataEvent.sequence, 13);
+assert.equal(metadataEvent.sequence, 15);
 assert.equal(metadataEvent.type, "run.updated");
 assert.deepEqual(metadataEvent.payload, {
   kind: "adapter_metadata",
@@ -112,14 +160,14 @@ const unknownTextEvent = { type: "session.updated", message: "busy" };
 const metadataTextEvent = toOpenCodeRuntimeEvent({
   event: unknownTextEvent,
   run,
-  sequence: 14,
+  sequence: 16,
   createdAt: now,
 });
 
 assert.equal(metadataTextEvent.runId, runId);
 assert.equal(metadataTextEvent.roomId, testRoomId);
 assert.equal(metadataTextEvent.targetMemberId, targetMemberId);
-assert.equal(metadataTextEvent.sequence, 14);
+assert.equal(metadataTextEvent.sequence, 16);
 assert.equal(metadataTextEvent.type, "run.updated");
 assert.deepEqual(metadataTextEvent.payload, {
   kind: "adapter_metadata",

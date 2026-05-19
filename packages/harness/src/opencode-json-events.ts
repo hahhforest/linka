@@ -55,6 +55,19 @@ const getStringField = (
   return undefined;
 };
 
+const getOpenCodeOutputText = (event: Record<string, unknown>): string | undefined => {
+  const topLevelText = getStringField(event, ["text", "message", "content"]);
+  if (topLevelText !== undefined) return topLevelText;
+
+  const part = event.part;
+  if (!isRecord(part)) return undefined;
+
+  const partText = getStringField(part, ["text"]);
+  if (partText === undefined || partText.trim().length === 0) return undefined;
+
+  return partText;
+};
+
 const isOpenCodeOutputEvent = (event: Record<string, unknown>): boolean =>
   typeof event.type === "string" && OPENCODE_OUTPUT_EVENT_TYPES.has(event.type);
 
@@ -136,7 +149,7 @@ export const toOpenCodeRuntimeEvent = (input: ToOpenCodeRuntimeEventInput): Runt
     };
   }
 
-  const text = getStringField(event, ["text", "message", "content"]);
+  const text = getOpenCodeOutputText(event);
 
   if (text !== undefined && isOpenCodeOutputEvent(event)) {
     return {
