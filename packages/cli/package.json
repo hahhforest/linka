@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"console.log('cli: no tests yet')\"",
+    "test": "find src -name '*.test.ts' -print0 | xargs -0 node --import tsx --test",
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
