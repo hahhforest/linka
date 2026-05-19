@@ -8,10 +8,12 @@ import {
   type RoomFile,
   type RoomId,
   type RoomMember,
+  type RoomMention,
   type RoomMessage,
 } from "@linka/shared";
 
 import { demoRoom } from "../fixtures/demoRoom.js";
+import { parseComposerMentions } from "./composerMentions.js";
 import type { RealtimeRoomEvent } from "../services/realtime/index.js";
 import {
   addRoomMember,
@@ -172,6 +174,7 @@ const makeLocalFallbackMessage = (
   members: readonly RoomMember[],
   messages: readonly RoomMessage[],
   text: string,
+  mentions: readonly RoomMention[],
 ): RoomMessage => {
   const sender = findHumanSender(members);
   const nextSequence = Math.max(0, ...messages.map((message) => message.sequence)) + 1;
@@ -186,6 +189,7 @@ const makeLocalFallbackMessage = (
     kind: "text",
     createdAt: unixMs(Date.now()),
     text,
+    mentions: mentions.length > 0 ? mentions : undefined,
     visibility: room.defaultVisibility,
     notification: { level: "silent" },
   };
@@ -389,6 +393,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     const state = get();
     const snapshot = getActiveSnapshot(state);
     const sender = findHumanSender(snapshot.members);
+    const mentions = parseComposerMentions(trimmed, snapshot.members);
 
     if (snapshot.source !== "api" || !sender) {
       const message = makeLocalFallbackMessage(
@@ -396,6 +401,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         snapshot.members,
         snapshot.messages,
         trimmed,
+        mentions,
       );
       set((current) => ({
         messagesByRoomId: {
@@ -415,6 +421,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         senderMemberId: sender.id,
         kind: "text",
         text: trimmed,
+        ...(mentions.length > 0 ? { mentions } : {}),
       });
       const { members, messages } = await loadApiRoomData(snapshot.room);
       set((current) => ({
@@ -429,6 +436,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         snapshot.members,
         snapshot.messages,
         trimmed,
+        mentions,
       );
       const errorMessage = error instanceof Error ? error.message : "Unable to send room message";
       set((current) => ({
