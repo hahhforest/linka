@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import {
+  docCommentId,
+  docId,
+  docRevisionId,
+  roomId,
+  roomMemberId,
+  unixMs,
+  type Doc,
+  type DocComment,
+  type DocRevision,
+} from "@linka/shared";
+
 import { createDaemonApp } from "./app.js";
 import { createDaemonContainer, type DaemonContainer } from "./container/index.js";
 import type { PersistedDaemonEvent } from "./store/event-store.js";
@@ -16,6 +28,8 @@ const createTestContainer = (): DaemonContainer =>
     version: "test-version",
     now: () => new Date("2026-05-19T00:00:00.000Z"),
   });
+
+const toJsonBody = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 const readSseEvent = async (response: Response): Promise<PersistedDaemonEvent> => {
   assert.ok(response.body);
@@ -416,6 +430,152 @@ test("fake harness does not reply to agent-authored mentions", async () => {
     const historyBody = (await historyResponse.json()) as { ok: true; messages: readonly unknown[] };
 
     assert.equal(historyBody.messages.length, 1);
+  } finally {
+    container.close();
+  }
+});
+
+test("doc API lists room docs and returns doc detail with revisions and comments", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Docs Room", topic: "read docs" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+
+    const memberResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_doc_owner", kind: "human", displayName: "Doc Owner" }),
+      },
+    );
+    const memberBody = (await memberResponse.json()) as { ok: true; member: { id: string } };
+
+    const contextRoomId = roomId(createRoomBody.room.id);
+    const ownerMemberId = roomMemberId(memberBody.member.id);
+    const now = unixMs(1_716_000_000_000);
+    const doc: Doc = {
+      id: docId("doc_api_read"),
+      contextRoomId,
+      title: "Read API Brief",
+      format: "markdown",
+      status: "active",
+      body: "# Brief\n\nShared read context.",
+      createdAt: now,
+      updatedAt: now,
+      createdByMemberId: ownerMemberId,
+      visibility: { scope: "room" },
+    };
+    const revision: DocRevision = {
+      id: docRevisionId("drev_api_read_1"),
+      docId: doc.id,
+      contextRoomId,
+      revisionNumber: 1,
+      format: "markdown",
+      status: "committed",
+      body: doc.body,
+      title: doc.title,
+      createdAt: unixMs(1_716_000_000_010),
+      createdByMemberId: ownerMemberId,
+      summary: "initial revision",
+    };
+    const comment: DocComment = {
+      id: docCommentId("dcmt_api_read_1"),
+      docId: doc.id,
+      contextRoomId,
+      revisionId: revision.id,
+      body: "Check the opening line.",
+      status: "open",
+      createdAt: unixMs(1_716_000_000_020),
+      updatedAt: unixMs(1_716_000_000_021),
+      createdByMemberId: ownerMemberId,
+      mentions: [{ kind: "member", memberId: ownerMemberId, displayText: "@Doc Owner" }],
+      anchor: { revisionId: revision.id, lineStart: 1, lineEnd: 1, quote: "# Brief" },
+      visibility: { scope: "room" },
+    };
+
+    assert.equal(createRoomResponse.status, 201);
+    assert.equal(memberResponse.status, 201);
+
+    container.docStore.createDoc(doc);
+    const createdRevision = container.docStore.createRevision(revision);
+    const createdComment = container.docStore.createComment(comment);
+    const expectedDoc: Doc = { ...doc, currentRevisionId: createdRevision.id };
+    const eventCountBeforeRead = container.eventStore.listAfter(0, 20).length;
+
+    const listResponse = await app.request(`http://127.0.0.1/linka/rooms/${contextRoomId}/docs`);
+    const listBody = (await listResponse.json()) as { ok: true; docs: readonly Doc[] };
+
+    assert.equal(listResponse.status, 200);
+    assert.deepEqual(listBody, { ok: true, docs: [toJsonBody(expectedDoc)] });
+
+    const detailResponse = await app.request(`http://127.0.0.1/linka/docs/${doc.id}`);
+    const detailBody = (await detailResponse.json()) as {
+      ok: true;
+      doc: Doc;
+      revisions: readonly DocRevision[];
+      comments: readonly DocComment[];
+    };
+
+    assert.equal(detailResponse.status, 200);
+    assert.deepEqual(detailBody, {
+      ok: true,
+      doc: toJsonBody(expectedDoc),
+      revisions: [toJsonBody(createdRevision)],
+      comments: [toJsonBody(createdComment)],
+    });
+    assert.equal(container.eventStore.listAfter(0, 20).length, eventCountBeforeRead);
+  } finally {
+    container.close();
+  }
+});
+
+test("doc API returns uniform errors for bad ids and missing docs", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const badRoomIdResponse = await app.request("http://127.0.0.1/linka/rooms/not-a-room/docs");
+    const badRoomIdBody = await badRoomIdResponse.json();
+
+    assert.equal(badRoomIdResponse.status, 400);
+    assert.deepEqual(badRoomIdBody, {
+      ok: false,
+      error: { code: "BAD_REQUEST", message: "roomId must be a valid room id" },
+    });
+
+    const missingRoomResponse = await app.request("http://127.0.0.1/linka/rooms/room_missing/docs");
+    const missingRoomBody = await missingRoomResponse.json();
+
+    assert.equal(missingRoomResponse.status, 404);
+    assert.deepEqual(missingRoomBody, {
+      ok: false,
+      error: { code: "NOT_FOUND", message: "room not found" },
+    });
+
+    const badDocIdResponse = await app.request("http://127.0.0.1/linka/docs/not-a-doc");
+    const badDocIdBody = await badDocIdResponse.json();
+
+    assert.equal(badDocIdResponse.status, 400);
+    assert.deepEqual(badDocIdBody, {
+      ok: false,
+      error: { code: "BAD_REQUEST", message: "docId must be a valid doc id" },
+    });
+
+    const missingDocResponse = await app.request("http://127.0.0.1/linka/docs/doc_missing");
+    const missingDocBody = await missingDocResponse.json();
+
+    assert.equal(missingDocResponse.status, 404);
+    assert.deepEqual(missingDocBody, {
+      ok: false,
+      error: { code: "NOT_FOUND", message: "doc not found" },
+    });
   } finally {
     container.close();
   }

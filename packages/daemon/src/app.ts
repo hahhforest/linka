@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { createDevEventsRoute } from "./api/dev-events.js";
+import { createDocsRoute } from "./api/docs.js";
 import { errorResponse, handleDaemonError } from "./api/errors.js";
 import { createEventsRoute } from "./api/events.js";
 import { createHealthRoute } from "./api/health.js";
@@ -18,6 +19,7 @@ export function createDaemonApp(container: DaemonContainer): Hono {
   linka.route("/", createEventsRoute(container));
   linka.route("/", createDevEventsRoute(container));
   linka.route("/", createRoomsRoute(container));
+  linka.route("/", createDocsRoute(container));
 
   return app;
 }
