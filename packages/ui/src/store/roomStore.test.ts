@@ -37,6 +37,7 @@ const resetStore = (): void => {
     source: "checking",
     isLoading: true,
     isSending: false,
+    isCreatingDoc: false,
     errorMessage: undefined,
     appliedRoomEventKeys: [],
   });
@@ -56,8 +57,11 @@ const withMockFetch = async (
   }
 };
 
+let fallbackFetchCalls = 0;
+
 await withMockFetch(
   async () => {
+    fallbackFetchCalls += 1;
     throw new Error("daemon offline");
   },
   async () => {
@@ -83,6 +87,15 @@ await withMockFetch(
 
     assert.equal(state.source, "fallback");
     assert.equal(state.messagesByRoomId[demoRoom.room.id]?.at(-1)?.text, "本地补充一条判断");
+
+    const callsBeforeCreateDoc = fallbackFetchCalls;
+    await useRoomStore.getState().createActiveRoomDoc({ title: "本地文档" });
+    state = useRoomStore.getState();
+
+    assert.equal(fallbackFetchCalls, callsBeforeCreateDoc);
+    assert.equal(state.isCreatingDoc, false);
+    assert.match(state.errorMessage ?? "", /API-backed room/);
+    assert.deepEqual(state.docsByRoomId[demoRoom.room.id], []);
   },
 );
 
@@ -104,6 +117,19 @@ const apiDocs: readonly Doc[] = [
     visibility: { scope: "room" },
   },
 ];
+const createdApiDoc: Doc = {
+  id: docId("doc_room_store_created"),
+  contextRoomId: apiRoom.id,
+  title: "Created Room Doc",
+  format: "markdown",
+  status: "active",
+  body: "# Created\n\nCreated through the room store.",
+  createdAt: unixMs(1_716_000_200_000),
+  updatedAt: unixMs(1_716_000_200_100),
+  createdByMemberId: apiMembers[0].id,
+  visibility: { scope: "room" },
+};
+
 const initialApiMessage = demoRoom.messages.find(
   (message) => message.id === "rmsg_user_initial_request",
 );
@@ -136,6 +162,7 @@ const responses = [
   makeJsonResponse({ ok: true, members: apiMembers }),
   makeJsonResponse({ ok: true, messages: [initialApiMessage, composerApiMessage] }),
   makeJsonResponse({ ok: true, docs: apiDocs }),
+  makeJsonResponse({ ok: true, doc: createdApiDoc }, 201),
 ];
 
 await withMockFetch(
@@ -212,6 +239,27 @@ await withMockFetch(
         `GET /linka/rooms/${apiRoom.id}/docs`,
       ],
     );
+    await useRoomStore.getState().createActiveRoomDoc({
+      title: "Created Room Doc",
+      body: "# Created\n\nCreated through the room store.",
+    });
+    state = useRoomStore.getState();
+
+    assert.equal(state.isCreatingDoc, false);
+    assert.equal(state.errorMessage, undefined);
+    assert.deepEqual(state.docsByRoomId[apiRoom.id], [...apiDocs, createdApiDoc]);
+
+    const docPost = requests[14];
+    assert.equal(docPost?.input, `/linka/rooms/${apiRoom.id}/docs`);
+    assert.equal(docPost?.init.method, "POST");
+    assert.deepEqual(JSON.parse(String(docPost?.init.body)), {
+      title: "Created Room Doc",
+      body: "# Created\n\nCreated through the room store.",
+      format: "markdown",
+      status: "active",
+      createdByMemberId: apiMembers[0].id,
+      visibility: { scope: "room" },
+    });
     assert.equal(responses.length, 0);
   },
 );
@@ -231,6 +279,7 @@ const resetStoreForRealtimeEvents = (): void => {
     source: "api",
     isLoading: false,
     isSending: false,
+    isCreatingDoc: false,
     errorMessage: undefined,
     appliedRoomEventKeys: [],
   });

@@ -16,7 +16,7 @@ import {
 import { demoRoom } from "../fixtures/demoRoom.js";
 import { parseComposerMentions } from "./composerMentions.js";
 import type { RealtimeRoomEvent } from "../services/realtime/index.js";
-import { listRoomDocs } from "../services/docsService.js";
+import { createRoomDoc, listRoomDocs } from "../services/docsService.js";
 import {
   addRoomMember,
   createRoom,
@@ -51,6 +51,7 @@ export interface RoomState {
   readonly source: RoomDataSource;
   readonly isLoading: boolean;
   readonly isSending: boolean;
+  readonly isCreatingDoc: boolean;
   readonly errorMessage?: string;
   readonly appliedRoomEventKeys: readonly string[];
   readonly initializeRoomWorkspace: () => Promise<void>;
@@ -58,6 +59,10 @@ export interface RoomState {
   readonly refreshActiveRoom: () => Promise<void>;
   readonly applyRoomEvent: (event: RealtimeRoomEvent) => void;
   readonly sendComposerMessage: (text: string) => Promise<void>;
+  readonly createActiveRoomDoc: (input: {
+    readonly title: string;
+    readonly body?: string;
+  }) => Promise<void>;
 }
 
 const fallbackRooms = [demoRoom.room];
@@ -112,6 +117,7 @@ const loadFallback = (set: (state: Partial<RoomState>) => void, error?: unknown)
     source: "fallback",
     isLoading: false,
     isSending: false,
+    isCreatingDoc: false,
     errorMessage,
     appliedRoomEventKeys: [],
   });
@@ -205,6 +211,11 @@ const makeLocalFallbackMessage = (
   };
 };
 
+const mergeRoomDoc = (docs: readonly Doc[], doc: Doc): readonly Doc[] =>
+  docs.some((candidate) => candidate.id === doc.id)
+    ? docs.map((candidate) => (candidate.id === doc.id ? doc : candidate))
+    : [...docs, doc];
+
 const getRoomEventKeys = (event: RealtimeRoomEvent): readonly string[] => [
   `cursor:${event.cursor}`,
   `id:${event.id}`,
@@ -240,6 +251,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   source: "checking",
   isLoading: true,
   isSending: false,
+  isCreatingDoc: false,
   errorMessage: undefined,
   appliedRoomEventKeys: [],
   initializeRoomWorkspace: async () => {
@@ -467,6 +479,55 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         isSending: false,
         errorMessage,
       }));
+    }
+  },
+  createActiveRoomDoc: async (input) => {
+    const state = get();
+    const room = state.rooms.find((candidate) => candidate.id === state.activeRoomId);
+
+    if (state.source !== "api") {
+      set({
+        isCreatingDoc: false,
+        errorMessage: "Creating room docs requires an API-backed room",
+      });
+      return;
+    }
+
+    if (!room) {
+      set({ isCreatingDoc: false, errorMessage: "No active room selected" });
+      return;
+    }
+
+    const members = state.membersByRoomId[room.id] ?? [];
+    const sender = findHumanSender(members);
+
+    if (!sender) {
+      set({ isCreatingDoc: false, errorMessage: "No human room member available" });
+      return;
+    }
+
+    set({ isCreatingDoc: true, errorMessage: undefined });
+
+    try {
+      const doc = await createRoomDoc(room.id, {
+        title: input.title,
+        ...(input.body === undefined ? {} : { body: input.body }),
+        format: "markdown",
+        status: "active",
+        createdByMemberId: sender.id,
+        visibility: { scope: "room" },
+      });
+      set((current) => ({
+        docsByRoomId: {
+          ...current.docsByRoomId,
+          [room.id]: mergeRoomDoc(current.docsByRoomId[room.id] ?? [], doc),
+        },
+        isCreatingDoc: false,
+        errorMessage: undefined,
+      }));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unable to create room doc";
+      set({ isCreatingDoc: false, errorMessage });
     }
   },
 }));
