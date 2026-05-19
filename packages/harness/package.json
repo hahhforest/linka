@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx src/index.test.ts",
+    "test": "find src -name '*.test.ts' -print0 | xargs -0 -n1 tsx --tsconfig ../../tsconfig.base.json",
     "dev": "node -e \"console.log('harness: no dev server')\""
   },
   "dependencies": {

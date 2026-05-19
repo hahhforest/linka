@@ -52,3 +52,5 @@ export const createFakeHarnessReply = ({
     text: `${targetMember.displayName} 已读取「${room.displayName}」的 room 现场。针对 ${source} 的消息：${summary}`,
   };
 };
+
+export * from "./runtime-adapter.js";
