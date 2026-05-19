@@ -6,7 +6,9 @@ import { getDataDir, getProfile, resolvePort } from "@linka/config";
 import { openDatabase, type DatabaseHandle } from "../db/connection.js";
 import { runMigrations } from "../db/migrations.js";
 import { createEventBus, type EventBus } from "../event-bus/index.js";
+import { createDocStore, type DocStore } from "../store/doc-store.js";
 import { createEventStore, type EventStore } from "../store/event-store.js";
+import { createHarnessRunStore, type HarnessRunStore } from "../store/harness-run-store.js";
 import { createMessageStore, type MessageStore } from "../store/message-store.js";
 import { createRoomStore, type RoomStore } from "../store/room-store.js";
 
@@ -33,6 +35,8 @@ export interface DaemonContainerOptions {
   eventBus?: EventBus;
   roomStore?: RoomStore;
   messageStore?: MessageStore;
+  docStore?: DocStore;
+  harnessRunStore?: HarnessRunStore;
 }
 
 export interface DaemonContainer {
@@ -47,6 +51,8 @@ export interface DaemonContainer {
   readonly eventBus: EventBus;
   readonly roomStore: RoomStore;
   readonly messageStore: MessageStore;
+  readonly docStore: DocStore;
+  readonly harnessRunStore: HarnessRunStore;
   readonly uptimeMs: () => number;
   readonly close: () => void;
 }
@@ -61,13 +67,17 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
   const allStoresProvided =
     options.eventStore !== undefined &&
     options.roomStore !== undefined &&
-    options.messageStore !== undefined;
+    options.messageStore !== undefined &&
+    options.docStore !== undefined &&
+    options.harnessRunStore !== undefined;
   const ownsDatabase = options.database === undefined && !allStoresProvided;
   const database = options.database ?? (allStoresProvided ? null : openContainerDatabase(databasePath));
   const eventStore = options.eventStore ?? createMigratedEventStore(database);
   const eventBus = options.eventBus ?? createEventBus();
   const roomStore = options.roomStore ?? createMigratedRoomStore(database);
   const messageStore = options.messageStore ?? createMigratedMessageStore(database);
+  const docStore = options.docStore ?? createMigratedDocStore(database);
+  const harnessRunStore = options.harnessRunStore ?? createMigratedHarnessRunStore(database);
 
   return {
     profile,
@@ -81,6 +91,8 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
     eventBus,
     roomStore,
     messageStore,
+    docStore,
+    harnessRunStore,
     uptimeMs: () => Math.max(0, now().getTime() - startedAt.getTime()),
     close: () => {
       if (ownsDatabase) {
@@ -131,4 +143,22 @@ function createMigratedMessageStore(database: DatabaseHandle | null): MessageSto
 
   runMigrations(database);
   return createMessageStore(database);
+}
+
+function createMigratedDocStore(database: DatabaseHandle | null): DocStore {
+  if (!database) {
+    throw new Error("database is required when docStore is not provided");
+  }
+
+  runMigrations(database);
+  return createDocStore(database);
+}
+
+function createMigratedHarnessRunStore(database: DatabaseHandle | null): HarnessRunStore {
+  if (!database) {
+    throw new Error("database is required when harnessRunStore is not provided");
+  }
+
+  runMigrations(database);
+  return createHarnessRunStore(database);
 }
