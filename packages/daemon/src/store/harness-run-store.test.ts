@@ -6,6 +6,7 @@ import {
   participantId,
   roomId,
   roomMemberId,
+  runtimeEventId,
   runtimeSessionId,
   type Doc,
   type HarnessRun,
@@ -13,6 +14,7 @@ import {
   type Room,
   type RoomMember,
   type RoomPermissions,
+  type RuntimeEvent,
   type RuntimeSessionRef,
   unixMs,
 } from "@linka/shared";
@@ -165,6 +167,33 @@ withHarnessRunStore(({ store, room, target, doc }) => {
   assert.equal(store.getRun(harnessRunId("hrun_missing")), undefined);
   assert.deepEqual(store.listRunsByRoom(room.id), [queued, running]);
   assert.deepEqual(store.listRunsByRoom(roomId("room_empty")), []);
+
+  const startedEvent: RuntimeEvent = {
+    id: runtimeEventId("rtevt_started"),
+    runId: running.id,
+    roomId: room.id,
+    targetMemberId: target.id,
+    sequence: 2,
+    type: "run.started",
+    createdAt: unixMs(1_716_000_000_500),
+    runtime,
+    payload: { kind: "run_status", status: "running", message: "started" },
+  };
+  const outputEvent: RuntimeEvent = {
+    id: runtimeEventId("rtevt_output"),
+    runId: running.id,
+    roomId: room.id,
+    targetMemberId: target.id,
+    sequence: 1,
+    type: "adapter.output",
+    createdAt: unixMs(1_716_000_000_450),
+    payload: { kind: "adapter_output", stream: "summary", text: "read doc" },
+  };
+
+  assert.deepEqual(store.appendEvent(startedEvent), startedEvent);
+  assert.deepEqual(store.appendEvent(outputEvent), outputEvent);
+  assert.deepEqual(store.listEvents(running.id), [outputEvent, startedEvent]);
+  assert.deepEqual(store.listEvents(harnessRunId("hrun_missing")), []);
 });
 
 withHarnessRunStore(({ handle, store, room, target, doc }) => {
@@ -260,6 +289,156 @@ withHarnessRunStore(({ handle, store, room, target, doc }) => {
     )
     .run("hrun_valid_doc_ids", room.id, target.id, "queued", now, now, JSON.stringify([doc.id]));
   assert.deepEqual(store.getRun(harnessRunId("hrun_valid_doc_ids"))?.docIds, [doc.id]);
+});
+
+withHarnessRunStore(({ handle, store, room, target }) => {
+  const run: HarnessRun = {
+    id: harnessRunId("hrun_bad_event_type"),
+    roomId: room.id,
+    targetMemberId: target.id,
+    status: "queued",
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.createRun(run);
+
+  handle.database
+    .prepare(
+      `
+        INSERT INTO harness_run_events (
+          runtime_event_id,
+          harness_run_id,
+          room_id,
+          target_member_id,
+          sequence,
+          type,
+          created_at,
+          payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    )
+    .run(
+      "rtevt_bad_type",
+      run.id,
+      room.id,
+      target.id,
+      1,
+      "runtime.log",
+      now,
+      JSON.stringify({ kind: "run_status", status: "queued" }),
+    );
+  assert.throws(
+    () => store.listEvents(run.id),
+    /Invalid runtime event type in database: runtime\.log/,
+  );
+});
+
+withHarnessRunStore(({ handle, store, room, target }) => {
+  const run: HarnessRun = {
+    id: harnessRunId("hrun_bad_event_payload_json"),
+    roomId: room.id,
+    targetMemberId: target.id,
+    status: "queued",
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.createRun(run);
+
+  handle.database
+    .prepare(
+      `
+        INSERT INTO harness_run_events (
+          runtime_event_id,
+          harness_run_id,
+          room_id,
+          target_member_id,
+          sequence,
+          type,
+          created_at,
+          payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    )
+    .run("rtevt_bad_payload_json", run.id, room.id, target.id, 1, "run.queued", now, "[]");
+  assert.throws(
+    () => store.listEvents(run.id),
+    /runtime event payload_json in database must be a JSON object/,
+  );
+});
+
+withHarnessRunStore(({ handle, store, room, target }) => {
+  const run: HarnessRun = {
+    id: harnessRunId("hrun_malformed_event_payload_json"),
+    roomId: room.id,
+    targetMemberId: target.id,
+    status: "queued",
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.createRun(run);
+
+  handle.database
+    .prepare(
+      `
+        INSERT INTO harness_run_events (
+          runtime_event_id,
+          harness_run_id,
+          room_id,
+          target_member_id,
+          sequence,
+          type,
+          created_at,
+          payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    )
+    .run("rtevt_malformed_payload_json", run.id, room.id, target.id, 1, "run.queued", now, "{");
+  assert.throws(
+    () => store.listEvents(run.id),
+    /runtime event payload_json in database contains invalid JSON/,
+  );
+});
+
+withHarnessRunStore(({ handle, store, room, target }) => {
+  const run: HarnessRun = {
+    id: harnessRunId("hrun_bad_event_payload_kind"),
+    roomId: room.id,
+    targetMemberId: target.id,
+    status: "queued",
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.createRun(run);
+
+  handle.database
+    .prepare(
+      `
+        INSERT INTO harness_run_events (
+          runtime_event_id,
+          harness_run_id,
+          room_id,
+          target_member_id,
+          sequence,
+          type,
+          created_at,
+          payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    )
+    .run(
+      "rtevt_bad_payload_kind",
+      run.id,
+      room.id,
+      target.id,
+      1,
+      "run.queued",
+      now,
+      JSON.stringify({ kind: "raw_log" }),
+    );
+  assert.throws(
+    () => store.listEvents(run.id),
+    /Invalid runtime event payload kind in database: raw_log/,
+  );
 });
 
 console.log("harness run store: ok");

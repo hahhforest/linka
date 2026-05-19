@@ -2,15 +2,22 @@ import {
   docId,
   harnessRunId,
   isHarnessRunStatus,
+  isRuntimeEventPayloadKind,
+  isRuntimeEventType,
   isRuntimeKind,
   roomId,
   roomMemberId,
   roomMessageId,
+  runtimeEventId,
   runtimeSessionId,
   type DocId,
   type HarnessRun,
+  type HarnessRunId,
   type HarnessRunStatus,
   type RoomId,
+  type RuntimeEvent,
+  type RuntimeEventPayload,
+  type RuntimeEventType,
   type RuntimeKind,
   type RuntimeSessionRef,
   unixMs,
@@ -25,6 +32,8 @@ export interface HarnessRunStore {
   createRun(run: HarnessRun): HarnessRun;
   getRun(id: HarnessRun["id"]): HarnessRun | undefined;
   listRunsByRoom(roomId: RoomId): readonly HarnessRun[];
+  appendEvent(event: RuntimeEvent): RuntimeEvent;
+  listEvents(runId: HarnessRunId): readonly RuntimeEvent[];
 }
 
 interface RuntimeSessionRow {
@@ -53,6 +62,21 @@ interface HarnessRunRow {
   readonly runtime_label: string | null;
 }
 
+interface RuntimeEventRow {
+  readonly runtime_event_id: string;
+  readonly harness_run_id: string;
+  readonly room_id: string;
+  readonly target_member_id: string;
+  readonly sequence: number;
+  readonly type: string;
+  readonly created_at: number;
+  readonly runtime_session_id: string | null;
+  readonly payload_json: string;
+  readonly runtime_kind: string | null;
+  readonly runtime_adapter_session_id: string | null;
+  readonly runtime_label: string | null;
+}
+
 const tableExists = (handle: DatabaseHandle, tableName: string): boolean => {
   const row = handle.database
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
@@ -62,7 +86,11 @@ const tableExists = (handle: DatabaseHandle, tableName: string): boolean => {
 };
 
 const assertSchemaReady = (handle: DatabaseHandle): void => {
-  if (!tableExists(handle, "runtime_sessions") || !tableExists(handle, "harness_runs")) {
+  if (
+    !tableExists(handle, "runtime_sessions") ||
+    !tableExists(handle, "harness_runs") ||
+    !tableExists(handle, "harness_run_events")
+  ) {
     throw new DaemonDatabaseError("runMigrations must be called before createHarnessRunStore");
   }
 };
@@ -83,11 +111,54 @@ const parseHarnessRunStatus = (value: string): HarnessRunStatus => {
   return value;
 };
 
+const parseRuntimeEventType = (value: string): RuntimeEventType => {
+  if (!isRuntimeEventType(value)) {
+    throw new Error("Invalid runtime event type in database: " + value);
+  }
+
+  return value;
+};
+
 const parseJsonValue = (value: string, label: string): unknown => {
   try {
     return JSON.parse(value) as unknown;
   } catch {
     throw new Error(`${label} in database contains invalid JSON`);
+  }
+};
+
+const isJsonObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const parseRuntimeEventPayload = (value: string): RuntimeEventPayload => {
+  const parsed = parseJsonValue(value, "runtime event payload_json");
+
+  if (!isJsonObject(parsed)) {
+    throw new Error("runtime event payload_json in database must be a JSON object");
+  }
+
+  if (typeof parsed.kind !== "string") {
+    throw new Error("runtime event payload_json.kind in database must be a string");
+  }
+
+  if (!isRuntimeEventPayloadKind(parsed.kind)) {
+    throw new Error("Invalid runtime event payload kind in database: " + parsed.kind);
+  }
+
+  return parsed as unknown as RuntimeEventPayload;
+};
+
+const stringifyJson = (value: unknown, label: string): string => {
+  try {
+    const json = JSON.stringify(value);
+
+    if (json === undefined) {
+      throw new Error(`${label} serialized to undefined`);
+    }
+
+    return json;
+  } catch {
+    throw new Error(`${label} must be JSON-serializable`);
   }
 };
 
@@ -166,6 +237,39 @@ const toHarnessRun = (row: HarnessRunRow): HarnessRun => {
   };
 };
 
+const toRuntimeEvent = (row: RuntimeEventRow): RuntimeEvent => {
+  const runtime = toJoinedRuntimeSession({
+    harness_run_id: row.harness_run_id,
+    room_id: row.room_id,
+    target_member_id: row.target_member_id,
+    status: "queued",
+    runtime_session_id: row.runtime_session_id,
+    created_at: row.created_at,
+    updated_at: row.created_at,
+    started_at: null,
+    completed_at: null,
+    trigger_message_id: null,
+    doc_ids_json: null,
+    summary: null,
+    error: null,
+    runtime_kind: row.runtime_kind,
+    runtime_adapter_session_id: row.runtime_adapter_session_id,
+    runtime_label: row.runtime_label,
+  });
+
+  return {
+    id: runtimeEventId(row.runtime_event_id),
+    runId: harnessRunId(row.harness_run_id),
+    roomId: roomId(row.room_id),
+    targetMemberId: roomMemberId(row.target_member_id),
+    sequence: row.sequence,
+    type: parseRuntimeEventType(row.type),
+    createdAt: unixMs(row.created_at),
+    ...(runtime === undefined ? {} : { runtime }),
+    payload: parseRuntimeEventPayload(row.payload_json),
+  };
+};
+
 export const createHarnessRunStore = (handle: DatabaseHandle): HarnessRunStore => {
   assertSchemaReady(handle);
 
@@ -240,6 +344,51 @@ export const createHarnessRunStore = (handle: DatabaseHandle): HarnessRunStore =
     )
   `);
 
+  const eventColumns = `
+    events.*,
+    sessions.kind AS runtime_kind,
+    sessions.adapter_session_id AS runtime_adapter_session_id,
+    sessions.label AS runtime_label
+  `;
+  const insertEvent = database.prepare(`
+    INSERT INTO harness_run_events (
+      runtime_event_id,
+      harness_run_id,
+      room_id,
+      target_member_id,
+      sequence,
+      type,
+      created_at,
+      runtime_session_id,
+      payload_json
+    ) VALUES (
+      @id,
+      @runId,
+      @roomId,
+      @targetMemberId,
+      @sequence,
+      @type,
+      @createdAt,
+      @runtimeSessionId,
+      @payloadJson
+    )
+  `);
+  const selectEvent = database.prepare(`
+    SELECT ${eventColumns}
+    FROM harness_run_events events
+    LEFT JOIN runtime_sessions sessions
+      ON sessions.runtime_session_id = events.runtime_session_id
+    WHERE events.runtime_event_id = ?
+  `);
+  const listEvents = database.prepare(`
+    SELECT ${eventColumns}
+    FROM harness_run_events events
+    LEFT JOIN runtime_sessions sessions
+      ON sessions.runtime_session_id = events.runtime_session_id
+    WHERE events.harness_run_id = ?
+    ORDER BY events.sequence ASC, events.runtime_event_id ASC
+  `);
+
   return {
     createRuntimeSession: (session) => {
       insertRuntimeSession.run({
@@ -295,6 +444,32 @@ export const createHarnessRunStore = (handle: DatabaseHandle): HarnessRunStore =
     listRunsByRoom: (id) => {
       const rows = listRunsByRoom.all(id) as HarnessRunRow[];
       return rows.map(toHarnessRun);
+    },
+
+    appendEvent: (event) => {
+      insertEvent.run({
+        id: event.id,
+        runId: event.runId,
+        roomId: event.roomId,
+        targetMemberId: event.targetMemberId,
+        sequence: event.sequence,
+        type: event.type,
+        createdAt: event.createdAt,
+        runtimeSessionId: event.runtime?.id ?? null,
+        payloadJson: stringifyJson(event.payload, "runtime event payload"),
+      });
+
+      const row = selectEvent.get(event.id) as RuntimeEventRow | undefined;
+      if (!row) {
+        throw new Error("failed to read created runtime event");
+      }
+
+      return toRuntimeEvent(row);
+    },
+
+    listEvents: (id) => {
+      const rows = listEvents.all(id) as RuntimeEventRow[];
+      return rows.map(toRuntimeEvent);
     },
   };
 };
