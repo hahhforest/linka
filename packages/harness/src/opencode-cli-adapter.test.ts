@@ -171,6 +171,37 @@ assert.match(capturedInput.prompt, /CLI Adapter Room/);
 assert.match(capturedInput.prompt, /CLI Agent/);
 assert.match(capturedInput.prompt, /Adapter Design Notes/);
 
+let capturedModelOptionsInput: OpenCodeCliRunnerInput | undefined;
+const modelOptionsRunner: OpenCodeCliRunner = async (input) => {
+  capturedModelOptionsInput = input;
+
+  return {
+    lines: lines([]),
+  };
+};
+
+const modelOptionsAdapter = new OpenCodeCliRuntimeAdapter({
+  agent: "build",
+  model: "azure/gpt-5.5",
+  variant: "xhigh",
+  runner: modelOptionsRunner,
+  now: () => now,
+});
+await modelOptionsAdapter.startRun({ run, projection });
+
+assert.ok(capturedModelOptionsInput);
+assert.deepEqual(capturedModelOptionsInput.args, [
+  "run",
+  "--format",
+  "json",
+  "--agent",
+  "build",
+  "--model",
+  "azure/gpt-5.5",
+  "--variant",
+  "xhigh",
+]);
+
 assert.equal(events.length, 2);
 assert.equal(events[0].type, "adapter.output");
 assert.equal(events[0].sequence, 1);

@@ -32,6 +32,8 @@ export type OpenCodeCliRunner = (input: OpenCodeCliRunnerInput) => Promise<OpenC
 export interface OpenCodeCliRuntimeAdapterOptions {
   readonly command?: string;
   readonly agent?: string;
+  readonly model?: string;
+  readonly variant?: string;
   readonly cwd?: string;
   readonly runner?: OpenCodeCliRunner;
   readonly now?: () => UnixMs;
@@ -209,6 +211,8 @@ const createAdapterErrorEvent = (
 export class OpenCodeCliRuntimeAdapter implements RuntimeAdapter {
   private readonly command: string;
   private readonly agent?: string;
+  private readonly model?: string;
+  private readonly variant?: string;
   private readonly cwd?: string;
   private readonly runner: OpenCodeCliRunner;
   private readonly now: () => UnixMs;
@@ -216,6 +220,8 @@ export class OpenCodeCliRuntimeAdapter implements RuntimeAdapter {
   constructor(options: OpenCodeCliRuntimeAdapterOptions = {}) {
     this.command = options.command ?? "opencode";
     this.agent = options.agent;
+    this.model = options.model;
+    this.variant = options.variant;
     this.cwd = options.cwd;
     this.runner = options.runner ?? defaultOpenCodeCliRunner;
     this.now = options.now ?? (() => unixMs(Date.now()));
@@ -233,7 +239,14 @@ export class OpenCodeCliRuntimeAdapter implements RuntimeAdapter {
   }
 
   async startRun(input: RuntimeAdapterRunInput): Promise<RuntimeAdapterRun> {
-    const args = ["run", "--format", "json", ...(this.agent ? ["--agent", this.agent] : [])];
+    const args = [
+      "run",
+      "--format",
+      "json",
+      ...(this.agent ? ["--agent", this.agent] : []),
+      ...(this.model ? ["--model", this.model] : []),
+      ...(this.variant ? ["--variant", this.variant] : []),
+    ];
     const prompt = formatOpenCodeCliPrompt(input.projection);
 
     try {
