@@ -27,7 +27,9 @@ import {
 
 import { openDatabase, type DatabaseHandle } from "../db/connection.js";
 import { runMigrations } from "../db/migrations.js";
+import { createEventBus } from "../event-bus/index.js";
 import { createDocStore } from "../store/doc-store.js";
+import { createEventStore, type PersistedDaemonEvent } from "../store/event-store.js";
 import { createHarnessRunStore } from "../store/harness-run-store.js";
 import { createMessageStore } from "../store/message-store.js";
 import { createRoomStore } from "../store/room-store.js";
@@ -143,6 +145,8 @@ async function* runtimeEvents(events: readonly RuntimeEvent[]): AsyncIterable<Ru
   }
 }
 
+const toJsonValue = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
 const withOpenCodeRunnerContext = async (
   run: (context: OpenCodeRunnerContext) => Promise<void> | void,
 ): Promise<void> => {
@@ -151,11 +155,13 @@ const withOpenCodeRunnerContext = async (
   try {
     runMigrations(handle);
 
+    const eventStore = createEventStore(handle);
+    const eventBus = createEventBus();
     const roomStore = createRoomStore(handle);
     const messageStore = createMessageStore(handle);
     const docStore = createDocStore(handle);
     const harnessRunStore = createHarnessRunStore(handle);
-    const container = { roomStore, messageStore, docStore, harnessRunStore };
+    const container = { eventStore, eventBus, roomStore, messageStore, docStore, harnessRunStore };
     const room = roomStore.createRoom(makeRoom());
     const human = roomStore.addMember(makeMember("human", "human", "owner"));
     const agent = roomStore.addMember(makeMember("agent", "agent", "member"));
@@ -254,6 +260,129 @@ await withOpenCodeRunnerContext(async ({ container, room, members, agent, messag
     container.messageStore.listMessages(room.id).map((storedMessage) => storedMessage.id),
     [message.id],
   );
+  assert.deepEqual(container.eventStore.listAfter(0, 10), []);
+});
+
+await withOpenCodeRunnerContext(async ({ container, room, members, agent, message }) => {
+  const runtime: RuntimeSessionRef = {
+    id: runtimeSessionId("rsess_opencode_runner_output"),
+    kind: "test",
+    adapterSessionId: "fake-opencode-output-session",
+    label: "Fake OpenCode Output Runtime",
+  };
+  const adapter = {
+    getCapabilities: () => capabilities,
+    startRun: async (input) => ({
+      events: runtimeEvents([
+        {
+          id: runtimeEventId("rtevt_opencode_output_started"),
+          runId: input.run.id,
+          roomId: input.run.roomId,
+          targetMemberId: input.run.targetMemberId,
+          sequence: 1,
+          type: "run.started",
+          createdAt: now,
+          runtime,
+          payload: { kind: "run_status", status: "running", message: "started" },
+        },
+        {
+          id: runtimeEventId("rtevt_opencode_output_first"),
+          runId: input.run.id,
+          roomId: input.run.roomId,
+          targetMemberId: input.run.targetMemberId,
+          sequence: 2,
+          type: "adapter.output",
+          createdAt: now,
+          runtime,
+          payload: {
+            kind: "adapter_output",
+            stream: "summary",
+            text: "first output should be replaced",
+          },
+        },
+        {
+          id: runtimeEventId("rtevt_opencode_output_wrong_type"),
+          runId: input.run.id,
+          roomId: input.run.roomId,
+          targetMemberId: input.run.targetMemberId,
+          sequence: 3,
+          type: "run.updated",
+          createdAt: now,
+          runtime,
+          payload: {
+            kind: "adapter_output",
+            stream: "summary",
+            text: "wrong event type should be ignored",
+          },
+        },
+        {
+          id: runtimeEventId("rtevt_opencode_output_blank"),
+          runId: input.run.id,
+          roomId: input.run.roomId,
+          targetMemberId: input.run.targetMemberId,
+          sequence: 4,
+          type: "adapter.output",
+          createdAt: now,
+          runtime,
+          payload: { kind: "adapter_output", stream: "summary", text: "   " },
+        },
+        {
+          id: runtimeEventId("rtevt_opencode_output_final"),
+          runId: input.run.id,
+          roomId: input.run.roomId,
+          targetMemberId: input.run.targetMemberId,
+          sequence: 5,
+          type: "adapter.output",
+          createdAt: now,
+          runtime,
+          payload: {
+            kind: "adapter_output",
+            stream: "summary",
+            text: "final OpenCode answer",
+          },
+        },
+      ]),
+    }),
+  } satisfies RuntimeAdapter;
+  const publishedEvents: PersistedDaemonEvent[] = [];
+  const subscription = container.eventBus.subscribe((event) => {
+    publishedEvents.push(event);
+  });
+  const runner = createOpenCodeRoomHarnessRunner({ container, adapter, now: () => now });
+
+  try {
+    await runner({ room, members, message, targetMember: agent });
+  } finally {
+    subscription.unsubscribe();
+  }
+
+  const messages = container.messageStore.listMessages(room.id);
+  assert.equal(messages.length, 2);
+
+  const reply = messages[1];
+  assert.ok(reply);
+  assert.match(reply.id, /^rmsg_/);
+  assert.equal(reply.roomId, room.id);
+  assert.equal(reply.sequence, 2);
+  assert.deepEqual(reply.sender, { kind: "member", memberId: agent.id });
+  assert.equal(reply.kind, "text");
+  assert.equal(reply.createdAt, now);
+  assert.equal(reply.text, "final OpenCode answer");
+  assert.deepEqual(reply.replyTo, { messageId: message.id });
+  assert.deepEqual(reply.visibility, roomVisibility);
+  assert.deepEqual(reply.notification, notificationPolicy);
+
+  const storedEvents = container.eventStore.listAfter(0, 10);
+  assert.equal(storedEvents.length, 1);
+
+  const messageCreated = storedEvents[0];
+  assert.ok(messageCreated);
+  assert.match(messageCreated.id, /^evt_/);
+  assert.equal(messageCreated.roomId, room.id);
+  assert.equal(messageCreated.type, "message.created");
+  assert.equal(messageCreated.createdAt, now);
+  assert.deepEqual(messageCreated.payload, { message: toJsonValue(reply) });
+  assert.deepEqual(publishedEvents, [messageCreated]);
 });
 
 console.log("opencode room runner: ok");
