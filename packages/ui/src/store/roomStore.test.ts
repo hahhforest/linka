@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 
 import { demoRoom } from "../fixtures/demoRoom.js";
+import * as roomStoreModule from "./roomStore.js";
 import { useRoomStore } from "./roomStore.js";
 
 interface CapturedRequest {
   readonly input: string;
   readonly init: RequestInit;
 }
+
+assert.equal(
+  Object.prototype.hasOwnProperty.call(roomStoreModule, "selectActiveRoomSnapshot"),
+  false,
+  "roomStore must not export object-creating Zustand selectors",
+);
 
 const makeJsonResponse = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {

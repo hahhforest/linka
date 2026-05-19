@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.test.json --noEmit && find src -name '*.test.ts' -print0 | xargs -0 tsx",
+    "test": "tsc -p tsconfig.test.json --noEmit && find src -name '*.test.ts' -print0 | xargs -0 -n1 tsx --tsconfig ../../tsconfig.base.json",
     "dev": "vite --host 127.0.0.1"
   },
   "dependencies": {

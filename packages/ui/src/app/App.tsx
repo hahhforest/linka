@@ -7,6 +7,7 @@ import { useRoomStore } from "../store/roomStore.js";
 
 export const App = () => {
   const checkDaemonConnection = useConnectionStore((state) => state.checkDaemonConnection);
+  const daemonStatus = useConnectionStore((state) => state.status);
   const initializeRoomWorkspace = useRoomStore((state) => state.initializeRoomWorkspace);
   const roomSource = useRoomStore((state) => state.source);
   const activeRoomId = useRoomStore((state) => state.activeRoomId);
@@ -27,15 +28,18 @@ export const App = () => {
     return () => window.clearInterval(intervalId);
   }, [checkDaemonConnection]);
 
+  useEffect(() => () => disconnectRealtime(), [disconnectRealtime]);
+
   useEffect(() => {
-    if (roomSource === "api" && activeRoomId) {
-      connectRealtime({ onRoomEvent: applyRoomEvent });
-      return () => disconnectRealtime();
+    if (daemonStatus === "offline" || daemonStatus === "error" || roomSource !== "api") {
+      disconnectRealtime();
+      return;
     }
 
-    disconnectRealtime();
-    return undefined;
-  }, [activeRoomId, applyRoomEvent, connectRealtime, disconnectRealtime, roomSource]);
+    if (daemonStatus === "online" && activeRoomId) {
+      connectRealtime({ onRoomEvent: applyRoomEvent });
+    }
+  }, [activeRoomId, applyRoomEvent, connectRealtime, daemonStatus, disconnectRealtime, roomSource]);
 
   return <RoomWorkspace />;
 };

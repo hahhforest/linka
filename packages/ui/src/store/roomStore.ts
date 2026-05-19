@@ -88,9 +88,6 @@ const getActiveSnapshot = (
   };
 };
 
-export const selectActiveRoomSnapshot = (state: RoomState): RoomWorkspaceSnapshot =>
-  getActiveSnapshot(state);
-
 const loadFallback = (set: (state: Partial<RoomState>) => void, error?: unknown): void => {
   const errorMessage = error instanceof Error ? error.message : undefined;
 

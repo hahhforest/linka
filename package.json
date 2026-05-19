@@ -12,7 +12,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "dev": "./scripts/dev-stack.sh",
-    "format": "prettier --check .prettierrc .eslintrc.cjs CLAUDE.md package.json pnpm-workspace.yaml turbo.json tsconfig.*.json packages/**/*.{json,ts,tsx} docs/plans/**/*.md"
+    "smoke:ui": "node scripts/ui-smoke.mjs",
+    "format": "prettier --check .prettierrc .eslintrc.cjs CLAUDE.md package.json pnpm-workspace.yaml turbo.json tsconfig.*.json packages/**/*.{json,ts,tsx} docs/plans/**/*.md scripts/**/*.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.17.16",

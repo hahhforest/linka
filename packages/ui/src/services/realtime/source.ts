@@ -71,9 +71,29 @@ export const connectRealtimeStream = ({
 }: ConnectRealtimeStreamOptions): RealtimeStreamConnection => {
   const source = sourceFactory(buildRealtimeEventsUrl(cursor));
   const listeners: Array<readonly [string, (event: StreamMessageEvent) => void]> = [];
+  let isClosed = false;
+
+  const close = (): void => {
+    if (isClosed) {
+      return;
+    }
+
+    isClosed = true;
+
+    if (source.removeEventListener) {
+      for (const [eventType, listener] of listeners) {
+        source.removeEventListener(eventType, listener);
+      }
+    }
+
+    source.onopen = null;
+    source.onerror = null;
+    source.onmessage = null;
+    source.close();
+  };
 
   const handleMessage = (event: StreamMessageEvent): void => {
-    if (typeof event.data !== "string") {
+    if (isClosed || typeof event.data !== "string") {
       return;
     }
 
@@ -83,8 +103,19 @@ export const connectRealtimeStream = ({
     }
   };
 
-  source.onopen = () => onOpen?.();
-  source.onerror = (event) => onError?.(event);
+  source.onopen = () => {
+    if (!isClosed) {
+      onOpen?.();
+    }
+  };
+  source.onerror = (event) => {
+    if (isClosed) {
+      return;
+    }
+
+    onError?.(event);
+    close();
+  };
   source.onmessage = handleMessage;
 
   if (source.addEventListener) {
@@ -94,18 +125,5 @@ export const connectRealtimeStream = ({
     }
   }
 
-  return {
-    close: () => {
-      if (source.removeEventListener) {
-        for (const [eventType, listener] of listeners) {
-          source.removeEventListener(eventType, listener);
-        }
-      }
-
-      source.onopen = null;
-      source.onerror = null;
-      source.onmessage = null;
-      source.close();
-    },
-  };
+  return { close };
 };

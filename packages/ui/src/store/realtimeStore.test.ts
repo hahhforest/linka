@@ -29,6 +29,10 @@ class FakeRealtimeSource {
     this.onopen?.({});
   }
 
+  fail(error: unknown = new Error("stream failed")): void {
+    this.onerror?.(error);
+  }
+
   emit(type: string, data: unknown): void {
     for (const listener of this.listeners.get(type) ?? []) {
       listener({ data: JSON.stringify(data) });
@@ -40,15 +44,21 @@ class FakeRealtimeSource {
   }
 }
 
-useRealtimeStore.getState().disconnect();
-useRealtimeStore.setState({ status: "idle", lastCursor: 0, errorMessage: undefined });
+const resetRealtimeStore = (): void => {
+  useRealtimeStore.getState().disconnect();
+  useRealtimeStore.setState({ status: "idle", lastCursor: 0, errorMessage: undefined });
+};
+
+resetRealtimeStore();
 
 let createdSource: FakeRealtimeSource | undefined;
 let capturedUrl = "";
+let sourceCreateCount = 0;
 const receivedEvents: unknown[] = [];
 
 useRealtimeStore.getState().connect({
   sourceFactory: (url) => {
+    sourceCreateCount += 1;
     capturedUrl = url;
     createdSource = new FakeRealtimeSource();
     return createdSource;
@@ -62,6 +72,14 @@ assert.ok(createdSource);
 
 createdSource.open();
 assert.equal(useRealtimeStore.getState().status, "open");
+
+useRealtimeStore.getState().connect({
+  sourceFactory: () => {
+    throw new Error("already connected streams should be reused");
+  },
+  onRoomEvent: (event) => receivedEvents.push(event),
+});
+assert.equal(sourceCreateCount, 1);
 
 createdSource.emit("message.created", {
   cursor: 8,
@@ -80,3 +98,32 @@ assert.equal(createdSource.closed, true);
 assert.equal(useRealtimeStore.getState().lastCursor, 8);
 
 console.log("realtime store lifecycle: ok");
+
+resetRealtimeStore();
+let errorSource: FakeRealtimeSource | undefined;
+let notifications = 0;
+const unsubscribe = useRealtimeStore.subscribe(() => {
+  notifications += 1;
+});
+
+useRealtimeStore.getState().connect({
+  sourceFactory: () => {
+    errorSource = new FakeRealtimeSource();
+    return errorSource;
+  },
+  onRoomEvent: () => undefined,
+});
+
+assert.ok(errorSource);
+errorSource.fail(new Error("daemon stream unavailable"));
+const notificationsAfterFirstError = notifications;
+assert.equal(useRealtimeStore.getState().status, "error");
+assert.equal(useRealtimeStore.getState().errorMessage, "daemon stream unavailable");
+assert.equal(errorSource.closed, true);
+
+errorSource.fail(new Error("daemon stream unavailable"));
+assert.equal(notifications, notificationsAfterFirstError);
+assert.equal(useRealtimeStore.getState().status, "error");
+
+unsubscribe();
+console.log("realtime store controlled error handling: ok");

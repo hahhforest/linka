@@ -29,40 +29,63 @@ const closeActiveConnection = (): void => {
   activeConnection = undefined;
 };
 
-export const useRealtimeStore = create<RealtimeState>((set, get) => ({
-  status: "idle",
-  lastCursor: 0,
-  errorMessage: undefined,
-  connect: ({ sourceFactory, onRoomEvent }) => {
-    closeActiveConnection();
-    set({ status: "connecting", errorMessage: undefined });
+const getRealtimeErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Realtime stream error";
 
-    try {
-      activeConnection = connectRealtimeStream({
-        cursor: get().lastCursor,
-        sourceFactory,
-        onOpen: () => set({ status: "open", errorMessage: undefined }),
-        onError: (error) => {
-          const errorMessage = error instanceof Error ? error.message : "Realtime stream error";
-          set({ status: "error", errorMessage });
-        },
-        onEvent: (event) => {
-          set((current) => ({
-            lastCursor: Math.max(current.lastCursor, event.cursor),
-            errorMessage: undefined,
-          }));
-          onRoomEvent(event);
-        },
-      });
-    } catch (error) {
+export const useRealtimeStore = create<RealtimeState>((set, get) => {
+  const setRealtimeError = (errorMessage: string): void => {
+    set((current) => {
+      if (current.status === "error" && current.errorMessage === errorMessage) {
+        return current;
+      }
+
+      return { status: "error", errorMessage };
+    });
+  };
+
+  return {
+    status: "idle",
+    lastCursor: 0,
+    errorMessage: undefined,
+    connect: ({ sourceFactory, onRoomEvent }) => {
+      const current = get();
+      if (activeConnection && (current.status === "connecting" || current.status === "open")) {
+        return;
+      }
+
       closeActiveConnection();
-      const errorMessage =
-        error instanceof Error ? error.message : "Unable to connect realtime stream";
-      set({ status: "error", errorMessage });
-    }
-  },
-  disconnect: () => {
-    closeActiveConnection();
-    set({ status: "idle", errorMessage: undefined });
-  },
-}));
+      set({ status: "connecting", errorMessage: undefined });
+
+      try {
+        activeConnection = connectRealtimeStream({
+          cursor: get().lastCursor,
+          sourceFactory,
+          onOpen: () => set({ status: "open", errorMessage: undefined }),
+          onError: (error) => {
+            closeActiveConnection();
+            setRealtimeError(getRealtimeErrorMessage(error));
+          },
+          onEvent: (event) => {
+            set((currentState) => ({
+              lastCursor: Math.max(currentState.lastCursor, event.cursor),
+              errorMessage: undefined,
+            }));
+            onRoomEvent(event);
+          },
+        });
+      } catch (error) {
+        closeActiveConnection();
+        const errorMessage =
+          error instanceof Error ? error.message : "Unable to connect realtime stream";
+        setRealtimeError(errorMessage);
+      }
+    },
+    disconnect: () => {
+      closeActiveConnection();
+      const current = get();
+      if (current.status !== "idle" || current.errorMessage !== undefined) {
+        set({ status: "idle", errorMessage: undefined });
+      }
+    },
+  };
+});
