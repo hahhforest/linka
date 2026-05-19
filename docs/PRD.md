@@ -100,7 +100,7 @@ Message 是 room 时间线里的协作单元。
 
 * 它属于哪个 room。
 
-* 它由谁发出：人、Linka、Agent、runtime 或系统。
+* 它由谁发出：人、Linka、Agent 或系统。Runtime 和工具不作为 Room 成员；它们的结果通过 Agent message、system status、tool result summary、evidence 或 artifact 表达。
 
 * 它是什么类型的内容。
 
