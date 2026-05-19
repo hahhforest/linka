@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>组织知识库治理评估</title>
+  <style>
+    :root {
+      --paper: #f6f1e7;
+      --ink: #1f2421;
+      --muted: #697066;
+      --line: #d8cdb9;
+      --card: rgba(255, 252, 245, 0.86);
+      --dark: #17231f;
+      --green: #0b6b57;
+      --blue: #275f7e;
+      --amber: #a56100;
+      --red: #a34032;
+      --shadow: 0 22px 70px rgba(58, 45, 26, 0.14);
+      --mono: "SFMono-Regular", "Cascadia Code", Menlo, Consolas, monospace;
+      --serif: "Iowan Old Style", "Songti SC", STSong, Georgia, serif;
+      --sans: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.75;
+      background:
+        linear-gradient(rgba(31, 36, 33, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(31, 36, 33, 0.025) 1px, transparent 1px),
+        var(--paper);
+      background-size: 28px 28px;
+    }
+
+    .shell {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 32px 24px;
+      overflow: auto;
+      border-right: 1px solid var(--line);
+      background: rgba(246, 241, 231, 0.84);
+      backdrop-filter: blur(10px);
+    }
+
+    aside .label {
+      margin-bottom: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    nav a {
+      display: block;
+      padding: 9px 0;
+      color: var(--muted);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(216, 205, 185, 0.58);
+    }
+
+    nav a.active,
+    nav a:hover { color: var(--green); }
+
+    main {
+      width: min(1120px, 100%);
+      padding: 52px 56px 88px;
+    }
+
+    .hero {
+      margin-bottom: 34px;
+      padding-bottom: 30px;
+      border-bottom: 2px solid var(--dark);
+    }
+
+    h1, h2, h3 {
+      font-family: var(--serif);
+      line-height: 1.25;
+    }
+
+    h1 {
+      margin: 0 0 18px;
+      font-size: clamp(36px, 5vw, 68px);
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 48px 0 16px;
+      padding-top: 6px;
+      font-size: 30px;
+      border-top: 1px solid var(--line);
+    }
+
+    h3 { margin-top: 28px; font-size: 22px; }
+    p { margin: 0 0 14px; }
+
+    .dek {
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .meta {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 28px;
+    }
+
+    .meta div,
+    .note,
+    .warn,
+    blockquote {
+      padding: 16px 18px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+    }
+
+    .meta strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--dark);
+    }
+
+    blockquote {
+      margin: 22px 0;
+      border-left: 5px solid var(--green);
+      font-size: 18px;
+    }
+
+    .warn { border-left: 5px solid var(--amber); }
+    .note { border-left: 5px solid var(--blue); }
+
+    .table-wrap {
+      margin: 20px 0;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      background: var(--card);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 680px;
+    }
+
+    th, td {
+      padding: 12px 14px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th { color: var(--dark); background: rgba(255, 252, 245, 0.7); }
+
+    pre {
+      overflow: auto;
+      padding: 18px;
+      color: #f6f1e7;
+      background: var(--dark);
+      border-radius: 6px;
+    }
+
+    code { font-family: var(--mono); }
+    .rule { height: 1px; margin: 36px 0; background: var(--line); }
+
+    @media (max-width: 860px) {
+      .shell { display: block; }
+      aside {
+        position: static;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      main { padding: 34px 20px 64px; }
+      .meta { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      .meta { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="label">Internal Report</div>
+      <nav aria-label="页面目录">
+        <a href="#summary">一句话结论</a>
+        <a href="#scope">范围和背景</a>
+        <a href="#findings">关键发现</a>
+        <a href="#comparison">对比表</a>
+        <a href="#decisions">决策建议</a>
+        <a href="#open-questions">开放问题</a>
+      </nav>
+    </aside>
+
+    <main>
+      <header class="hero">
+        <h1>组织知识库治理评估</h1>
+        <p class="dek">这是一份中性主题的内部报告模板，用于展示长文阅读、左侧目录、表格、引用块、提示块和代码块的组合方式。</p>
+        <section class="meta" aria-label="文档元信息">
+          <div><strong>状态</strong>Draft</div>
+          <div><strong>读者</strong>内部协作团队</div>
+          <div><strong>作者</strong>Author</div>
+          <div><strong>更新时间</strong>YYYY-MM-DD</div>
+        </section>
+      </header>
+
+      <article>
+        <section id="summary">
+          <h2>一句话结论</h2>
+          <blockquote>知识库治理的核心不是增加分类，而是让高频信息有稳定入口、明确责任人和可追溯的更新机制。</blockquote>
+        </section>
+
+        <section id="scope">
+          <h2>范围和背景</h2>
+          <p>本文档用于承载内部研究报告结构。实际使用时，应替换为当前主题的背景、范围、核心问题和约束。</p>
+          <div class="note">建议先写清楚“不讨论什么”，避免报告变成泛泛的资料堆叠。</div>
+        </section>
+
+        <section id="findings">
+          <h2>关键发现</h2>
+          <h3>入口稳定比页面数量更重要</h3>
+          <p>如果团队不知道从哪里开始查找，更多页面只会增加噪音。报告应优先说明入口、边界和维护责任。</p>
+          <pre><code>Knowledge Base
+├── Start Here
+├── Product Decisions
+├── Engineering Notes
+└── Open Questions</code></pre>
+        </section>
+
+        <section id="comparison">
+          <h2>对比表</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>方案</th>
+                  <th>优点</th>
+                  <th>风险</th>
+                  <th>适用场景</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>按项目分类</td>
+                  <td>上下文集中，便于复盘</td>
+                  <td>跨项目知识容易重复</td>
+                  <td>短周期项目</td>
+                </tr>
+                <tr>
+                  <td>按领域分类</td>
+                  <td>长期沉淀稳定</td>
+                  <td>初期需要维护规则</td>
+                  <td>平台型能力</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="decisions">
+          <h2>决策建议</h2>
+          <p>采用“稳定入口 + 领域沉淀 + 项目复盘”的组合结构。入口页负责导航，领域页负责长期知识，项目页负责过程记录。</p>
+          <div class="warn">风险：如果没有维护责任人，任何分类结构都会迅速失效。</div>
+        </section>
+
+        <section id="open-questions">
+          <h2>开放问题</h2>
+          <ul>
+            <li>哪些页面需要明确 owner？</li>
+            <li>哪些信息应该设置过期检查？</li>
+            <li>哪些内容适合沉淀为模板？</li>
+          </ul>
+        </section>
+      </article>
+    </main>
+  </div>
+
+  <script>
+    const links = [...document.querySelectorAll('nav a')];
+    const sections = links.map(link => document.querySelector(link.getAttribute('href'))).filter(Boolean);
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        links.forEach(link => link.classList.toggle('active', link.getAttribute('href') === `#${entry.target.id}`));
+      });
+    }, { rootMargin: '-20% 0px -65% 0px', threshold: 0.01 });
+    sections.forEach(section => observer.observe(section));
+  </script>
+</body>
+</html>
