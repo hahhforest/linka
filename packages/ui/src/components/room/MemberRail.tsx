@@ -6,6 +6,7 @@ const emptyMembers = [] as const;
 const emptyAnnouncements = [] as const;
 const emptyDocs = [] as const;
 const emptyRuns = [] as const;
+const emptySessions = [] as const;
 const emptyRuntimeEventsByRunId = {} as const;
 
 const memberAccent = (kind: string): string => (kind === "agent" ? "bg-linka" : "bg-signal");
@@ -26,6 +27,18 @@ const runStatusLabel = (status: string): string => {
   if (status === "succeeded") return "completed";
   return status;
 };
+
+const sessionStatusLabel = (status: string): string => {
+  if (status === "idle") return "ready";
+  if (status === "created") return "created";
+  return status.replace(/_/gu, " ");
+};
+
+const getRuntimeLabel = (session: {
+  readonly runtime?: { readonly kind: string; readonly label?: string };
+}): string =>
+  session.runtime?.label ??
+  (session.runtime ? session.runtime.kind + " runtime" : "runtime pending");
 
 const runStatusClass = (status: string): string => {
   if (status === "running" || status === "queued") {
@@ -57,6 +70,9 @@ export const MemberRail = () => {
   const runs = useRoomStore((state) =>
     activeRoomId ? (state.harnessRunsByRoomId[activeRoomId] ?? emptyRuns) : emptyRuns,
   );
+  const sessions = useRoomStore((state) =>
+    activeRoomId ? (state.harnessSessionsByRoomId[activeRoomId] ?? emptySessions) : emptySessions,
+  );
   const runtimeEventsByRunId = useRoomStore(
     (state) => state.runtimeEventsByRunId ?? emptyRuntimeEventsByRunId,
   );
@@ -68,6 +84,9 @@ export const MemberRail = () => {
   const isCreatingDoc = useRoomStore((state) => state.isCreatingDoc);
   const createActiveRoomDoc = useRoomStore((state) => state.createActiveRoomDoc);
   const trimmedDocTitle = docTitle.trim();
+  const recentSessions = [...sessions]
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .slice(0, 4);
   const recentRuns = [...runs].sort((left, right) => right.createdAt - left.createdAt).slice(0, 4);
 
   return (
@@ -97,6 +116,43 @@ export const MemberRail = () => {
 
       <section className="mt-6 border-t border-line pt-5">
         <h2 className="text-sm font-semibold">活动</h2>
+        {recentSessions.length > 0 ? (
+          <div className="mt-3 grid gap-2">
+            {recentSessions.map((session) => {
+              const target = members.find((member) => member.id === session.agentMemberId);
+              const updatedAt = session.updatedAt;
+
+              return (
+                <article
+                  key={session.id}
+                  className="rounded-lg border border-line bg-[#fffdf8] p-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-sm font-semibold">
+                        {target?.displayName ?? "Agent"}
+                      </h3>
+                      <time
+                        className="mt-1 block font-mono text-xs text-muted"
+                        dateTime={new Date(updatedAt).toISOString()}
+                      >
+                        {formatShortTime(updatedAt)}
+                      </time>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-md border px-2 py-1 font-mono text-[11px] ${runStatusClass(session.status)}`}
+                    >
+                      {sessionStatusLabel(session.status)}
+                    </span>
+                  </div>
+                  <p className="mt-2 truncate font-mono text-xs text-muted">
+                    {getRuntimeLabel(session)}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
         {recentRuns.length > 0 ? (
           <div className="mt-3 grid gap-2">
             {recentRuns.map((run) => {
@@ -148,11 +204,11 @@ export const MemberRail = () => {
               );
             })}
           </div>
-        ) : (
+        ) : recentSessions.length === 0 ? (
           <p className="mt-3 rounded-lg border border-line bg-panel/70 p-3 text-sm text-muted">
             暂无运行记录
           </p>
-        )}
+        ) : null}
       </section>
 
       <section className="mt-6 border-t border-line pt-5">
