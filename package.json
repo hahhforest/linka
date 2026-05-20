@@ -13,7 +13,8 @@
     "test": "turbo run test",
     "dev": "./scripts/dev-stack.sh",
     "smoke:ui": "node scripts/ui-smoke.mjs",
-    "format": "prettier --check .prettierrc .eslintrc.cjs CLAUDE.md package.json pnpm-workspace.yaml turbo.json tsconfig.*.json packages/**/*.{json,ts,tsx} docs/plans/**/*.md scripts/**/*.mjs"
+    "format": "prettier --check .prettierrc .eslintrc.cjs CLAUDE.md package.json pnpm-workspace.yaml turbo.json tsconfig.*.json packages/**/*.{json,ts,tsx} docs/plans/**/*.md scripts/**/*.mjs",
+    "smoke:opencode-room": "node scripts/opencode-room-smoke.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.17.16",
