@@ -318,6 +318,93 @@ await withMockFetch(
 
 console.log("room store api path: ok");
 
+const handoffDoc: Doc = {
+  ...createdApiDoc,
+  id: docId("doc_room_store_handoff"),
+  title: "Nightly ToDo",
+  body: "完成北极星任务。",
+};
+const handoffMessage = {
+  ...composerApiMessage,
+  id: "rmsg_room_store_handoff" as typeof composerApiMessage.id,
+  sequence: 3,
+  kind: "instruction" as const,
+  text: "@LinkA 请根据刚创建的 Doc「Nightly ToDo」继续推进。",
+  mentions: [{ memberId: apiMembers[1].id, displayText: "@LinkA" }],
+};
+const handoffRequests: CapturedRequest[] = [];
+const handoffResponses = [
+  makeJsonResponse({ ok: true, doc: handoffDoc }, 201),
+  makeJsonResponse({ ok: true, message: handoffMessage }, 201),
+  makeJsonResponse({ ok: true, members: apiMembers }),
+  makeJsonResponse({ ok: true, messages: [...demoRoom.messages, handoffMessage] }),
+  makeJsonResponse({ ok: true, docs: [...apiDocs, handoffDoc] }),
+  makeJsonResponse({ ok: true, runs: [] }),
+];
+
+await withMockFetch(
+  async (input, init = {}) => {
+    handoffRequests.push({ input: String(input), init });
+    const response = handoffResponses.shift();
+
+    if (!response) {
+      throw new Error(`unexpected handoff fetch call: ${String(input)}`);
+    }
+
+    return response;
+  },
+  async () => {
+    resetStore();
+    useRoomStore.setState({
+      rooms: [apiRoom],
+      activeRoomId: apiRoom.id,
+      membersByRoomId: { [apiRoom.id]: apiMembers },
+      messagesByRoomId: { [apiRoom.id]: demoRoom.messages },
+      docsByRoomId: { [apiRoom.id]: apiDocs },
+      harnessRunsByRoomId: { [apiRoom.id]: [] },
+      runtimeEventsByRunId: {},
+      filesByRoomId: { [apiRoom.id]: [] },
+      announcementsByRoomId: { [apiRoom.id]: [] },
+      pinnedItemsByRoomId: { [apiRoom.id]: [] },
+      source: "api",
+      isLoading: false,
+      isSending: false,
+      isCreatingDoc: false,
+      errorMessage: undefined,
+      appliedRoomEventKeys: [],
+    });
+
+    await useRoomStore.getState().createActiveRoomDoc({
+      title: "Nightly ToDo",
+      body: "完成北极星任务。",
+      notifyLinkA: true,
+    });
+  },
+);
+
+assert.deepEqual(
+  handoffRequests.map((request) => `${request.init.method ?? "GET"} ${request.input}`),
+  [
+    `POST /linka/rooms/${apiRoom.id}/docs`,
+    `POST /linka/rooms/${apiRoom.id}/messages`,
+    `GET /linka/rooms/${apiRoom.id}/members`,
+    `GET /linka/rooms/${apiRoom.id}/messages?afterSequence=0&limit=500`,
+    `GET /linka/rooms/${apiRoom.id}/docs`,
+    `GET /linka/rooms/${apiRoom.id}/harness-runs`,
+  ],
+);
+assert.deepEqual(JSON.parse(String(handoffRequests[1]?.init.body)), {
+  senderMemberId: apiMembers[0].id,
+  kind: "instruction",
+  text: "@LinkA 请根据刚创建的 Doc「Nightly ToDo」继续推进。",
+  mentions: [{ memberId: apiMembers[1].id, displayText: "@LinkA" }],
+});
+let handoffState = useRoomStore.getState();
+assert.deepEqual(handoffState.docsByRoomId[apiRoom.id], [...apiDocs, handoffDoc]);
+assert.deepEqual(handoffState.messagesByRoomId[apiRoom.id]?.at(-1), handoffMessage);
+assert.equal(handoffState.errorMessage, undefined);
+assert.equal(handoffResponses.length, 0);
+
 const resetStoreForRealtimeEvents = (): void => {
   useRoomStore.setState({
     rooms: [demoRoom.room],

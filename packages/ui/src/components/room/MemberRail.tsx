@@ -46,6 +46,7 @@ const runStatusClass = (status: string): string => {
 export const MemberRail = () => {
   const [docTitle, setDocTitle] = useState("");
   const [docBody, setDocBody] = useState("");
+  const [handoffToLinkA, setHandoffToLinkA] = useState(true);
   const activeRoomId = useRoomStore((state) => state.activeRoomId);
   const members = useRoomStore((state) =>
     activeRoomId ? (state.membersByRoomId[activeRoomId] ?? emptyMembers) : emptyMembers,
@@ -174,6 +175,7 @@ export const MemberRail = () => {
             void createActiveRoomDoc({
               title: nextTitle,
               ...(nextBody.length > 0 ? { body: nextBody } : {}),
+              notifyLinkA: handoffToLinkA,
             }).then(() => {
               if (useRoomStore.getState().errorMessage === undefined) {
                 setDocTitle("");
@@ -207,12 +209,22 @@ export const MemberRail = () => {
             disabled={isCreatingDoc}
             onChange={(event) => setDocBody(event.target.value)}
           />
+          <label className="flex items-center gap-2 rounded-md border border-line bg-paper px-2.5 py-2 text-xs text-muted">
+            <input
+              checked={handoffToLinkA}
+              className="h-3.5 w-3.5 accent-[#6f52d9]"
+              type="checkbox"
+              disabled={isCreatingDoc}
+              onChange={(event) => setHandoffToLinkA(event.target.checked)}
+            />
+            创建后 @LinkA
+          </label>
           <button
             className="rounded-md bg-ink px-3 py-1.5 text-sm font-semibold text-white hover:bg-linka disabled:cursor-not-allowed disabled:bg-muted"
             type="submit"
             disabled={trimmedDocTitle.length === 0 || isCreatingDoc}
           >
-            {isCreatingDoc ? "创建中" : "新建 Doc"}
+            {isCreatingDoc ? "创建中" : handoffToLinkA ? "保存并交给 LinkA" : "新建 Doc"}
           </button>
         </form>
         {docs.length > 0 ? (

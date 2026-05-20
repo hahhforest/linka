@@ -69,6 +69,7 @@ export interface RoomState {
   readonly createActiveRoomDoc: (input: {
     readonly title: string;
     readonly body?: string;
+    readonly notifyLinkA?: boolean;
   }) => Promise<void>;
 }
 
@@ -206,6 +207,14 @@ const loadApiRoomData = async (
 const findHumanSender = (members: readonly RoomMember[]): RoomMember | undefined =>
   members.find((member) => member.kind === "human" && member.status === "active") ??
   members.find((member) => member.kind === "human");
+
+const findLinkAAgent = (members: readonly RoomMember[]): RoomMember | undefined =>
+  members.find(
+    (member) =>
+      member.kind === "agent" &&
+      member.status === "active" &&
+      member.displayName.toLocaleLowerCase("zh-CN").includes("linka"),
+  ) ?? members.find((member) => member.kind === "agent" && member.status === "active");
 
 const makeLocalFallbackMessage = (
   room: Room,
@@ -568,6 +577,46 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         createdByMemberId: sender.id,
         visibility: { scope: "room" },
       });
+
+      if (input.notifyLinkA) {
+        const linka = findLinkAAgent(members);
+        if (!linka) {
+          set((current) => ({
+            docsByRoomId: {
+              ...current.docsByRoomId,
+              [room.id]: mergeRoomDoc(current.docsByRoomId[room.id] ?? [], doc),
+            },
+            isCreatingDoc: false,
+            errorMessage: "No active LinkA agent available",
+          }));
+          return;
+        }
+
+        await sendRoomMessage(room.id, {
+          senderMemberId: sender.id,
+          kind: "instruction",
+          text: `@${linka.displayName} 请根据刚创建的 Doc「${doc.title}」继续推进。`,
+          mentions: [{ memberId: linka.id, displayText: `@${linka.displayName}` }],
+        });
+        const {
+          members: loadedMembers,
+          messages,
+          docs,
+          harnessRuns,
+          runtimeEventsByRunId,
+        } = await loadApiRoomData(room);
+        set((current) => ({
+          membersByRoomId: { ...current.membersByRoomId, [room.id]: loadedMembers },
+          messagesByRoomId: { ...current.messagesByRoomId, [room.id]: messages },
+          docsByRoomId: { ...current.docsByRoomId, [room.id]: docs },
+          harnessRunsByRoomId: { ...current.harnessRunsByRoomId, [room.id]: harnessRuns },
+          runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
+          isCreatingDoc: false,
+          errorMessage: undefined,
+        }));
+        return;
+      }
+
       set((current) => ({
         docsByRoomId: {
           ...current.docsByRoomId,
