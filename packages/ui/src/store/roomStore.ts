@@ -246,6 +246,8 @@ const getRoomEventKeys = (event: RealtimeRoomEvent): readonly string[] => [
 const hasAppliedRoomEvent = (keys: readonly string[], eventKeys: readonly string[]): boolean =>
   eventKeys.some((eventKey) => keys.includes(eventKey));
 
+const hasMentionMarker = (text: string): boolean => /(^|\s)@/u.test(text);
+
 const addRoomEventKeys = (
   keys: readonly string[],
   eventKeys: readonly string[],
@@ -462,6 +464,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     const sender = findHumanSender(snapshot.members);
     const mentions = parseComposerMentions(trimmed, snapshot.members);
 
+    if (hasMentionMarker(trimmed) && mentions.length === 0) {
+      set({
+        isSending: false,
+        errorMessage: "未识别 @ 成员，请使用输入框上方的 Agent 按钮或完整成员名。",
+      });
+      return;
+    }
+
     if (snapshot.source !== "api" || !sender) {
       const message = makeLocalFallbackMessage(
         snapshot.room,
@@ -476,7 +486,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           [snapshot.room.id]: [...(current.messagesByRoomId[snapshot.room.id] ?? []), message],
         },
         source: "fallback",
-        errorMessage: state.errorMessage,
+        errorMessage: undefined,
       }));
       return;
     }

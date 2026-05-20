@@ -21,11 +21,13 @@ const linkaMention = { memberId: linkaMember.id, displayText: "@LinkA" };
 
 assert.deepEqual(parseComposerMentions("@LinkA 请处理", demoRoom.members), [linkaMention]);
 
+assert.deepEqual(parseComposerMentions("@linka 请处理", demoRoom.members), [linkaMention]);
+
+assert.deepEqual(parseComposerMentions("@LinkA请处理", demoRoom.members), [linkaMention]);
+
 assert.deepEqual(parseComposerMentions("@Nobody 请处理", demoRoom.members), []);
 
-assert.deepEqual(parseComposerMentions("@LinkA @LinkA @Nobody", demoRoom.members), [
-  linkaMention,
-]);
+assert.deepEqual(parseComposerMentions("@LinkA @LinkA @Nobody", demoRoom.members), [linkaMention]);
 
 assert.deepEqual(parseComposerMentions("先 @核验 Agent 复核，再 @LinkA 收口", demoRoom.members), [
   { memberId: verificationMember.id, displayText: "@核验 Agent" },
@@ -37,9 +39,7 @@ assert.deepEqual(parseComposerMentions("请 @用户确认中文名", demoRoom.me
 ]);
 
 assert.deepEqual(
-  parseComposerMentions("@LinkA 不应匹配非 active member", [
-    { ...linkaMember, status: "removed" },
-  ]),
+  parseComposerMentions("@LinkA 不应匹配非 active member", [{ ...linkaMember, status: "removed" }]),
   [],
 );
 
@@ -56,12 +56,16 @@ const resetRoomStore = (source: "api" | "fallback"): void => {
     activeRoomId: demoRoom.room.id,
     membersByRoomId: { [demoRoom.room.id]: demoRoom.members },
     messagesByRoomId: { [demoRoom.room.id]: demoRoom.messages },
+    docsByRoomId: { [demoRoom.room.id]: [] },
+    harnessRunsByRoomId: { [demoRoom.room.id]: [] },
+    runtimeEventsByRunId: {},
     filesByRoomId: { [demoRoom.room.id]: [] },
     announcementsByRoomId: { [demoRoom.room.id]: [] },
     pinnedItemsByRoomId: { [demoRoom.room.id]: [] },
     source,
     isLoading: false,
     isSending: false,
+    isCreatingDoc: false,
     errorMessage: undefined,
     appliedRoomEventKeys: [],
   });
@@ -87,18 +91,29 @@ const fallbackMessage = useRoomStore.getState().messagesByRoomId[demoRoom.room.i
 assert.equal(fallbackMessage?.text, "@LinkA 本地 fallback @LinkA");
 assert.deepEqual(fallbackMessage?.mentions, [linkaMention]);
 
+resetRoomStore("fallback");
+await useRoomStore.getState().sendComposerMessage("@Nobody 本地 fallback");
+const fallbackStateAfterBadMention = useRoomStore.getState();
+assert.equal(
+  fallbackStateAfterBadMention.messagesByRoomId[demoRoom.room.id]?.length,
+  demoRoom.messages.length,
+);
+assert.match(fallbackStateAfterBadMention.errorMessage ?? "", /未识别 @ 成员/);
+
 const requests: CapturedRequest[] = [];
 const apiComposerMessage = {
   ...demoRoom.messages[1],
   sequence: demoRoom.messages.length + 1,
   kind: "text",
-  text: "@LinkA API path",
+  text: "@linka API path",
   mentions: [linkaMention],
 };
 const responses = [
   makeJsonResponse({ ok: true, message: apiComposerMessage }, 201),
   makeJsonResponse({ ok: true, members: demoRoom.members }),
   makeJsonResponse({ ok: true, messages: [...demoRoom.messages, apiComposerMessage] }),
+  makeJsonResponse({ ok: true, docs: [] }),
+  makeJsonResponse({ ok: true, runs: [] }),
 ];
 
 await withMockFetch(
@@ -114,7 +129,7 @@ await withMockFetch(
   },
   async () => {
     resetRoomStore("api");
-    await useRoomStore.getState().sendComposerMessage("@LinkA API path");
+    await useRoomStore.getState().sendComposerMessage("@linka API path");
   },
 );
 
@@ -123,9 +138,23 @@ assert.equal(requests[0]?.init.method, "POST");
 assert.deepEqual(JSON.parse(String(requests[0]?.init.body)), {
   senderMemberId: userMember.id,
   kind: "text",
-  text: "@LinkA API path",
+  text: "@linka API path",
   mentions: [linkaMention],
 });
 assert.equal(responses.length, 0);
+
+const badMentionRequests: CapturedRequest[] = [];
+await withMockFetch(
+  async (input, init = {}) => {
+    badMentionRequests.push({ input: String(input), init });
+    throw new Error("bad mention should not be sent");
+  },
+  async () => {
+    resetRoomStore("api");
+    await useRoomStore.getState().sendComposerMessage("@Nobody API path");
+  },
+);
+assert.equal(badMentionRequests.length, 0);
+assert.match(useRoomStore.getState().errorMessage ?? "", /未识别 @ 成员/);
 
 console.log("composer mention parser and store integration: ok");

@@ -3,6 +3,7 @@ import type { RoomMember, RoomMention } from "@linka/shared";
 interface MentionCandidate {
   readonly member: RoomMember;
   readonly displayName: string;
+  readonly normalizedDisplayName: string;
   readonly canMatchWithoutBoundary: boolean;
 }
 
@@ -54,6 +55,11 @@ const isBoundaryCharacter = (character: string | undefined): boolean =>
 const isMentionStart = (text: string, atIndex: number): boolean =>
   isBoundaryCharacter(atIndex > 0 ? text[atIndex - 1] : undefined);
 
+const isMentionEnd = (character: string | undefined): boolean =>
+  isBoundaryCharacter(character) || containsNonAscii(character ?? "");
+
+const normalizeMentionText = (value: string): string => value.toLocaleLowerCase("zh-CN");
+
 const toMentionCandidates = (members: readonly RoomMember[]): readonly MentionCandidate[] =>
   members
     .filter(
@@ -68,10 +74,24 @@ const toMentionCandidates = (members: readonly RoomMember[]): readonly MentionCa
       return {
         member,
         displayName,
+        normalizedDisplayName: normalizeMentionText(displayName),
         canMatchWithoutBoundary: containsNonAscii(displayName),
       };
     })
     .sort((left, right) => right.displayName.length - left.displayName.length);
+
+const startsWithCandidate = (
+  text: string,
+  displayNameStartIndex: number,
+  candidate: MentionCandidate,
+): boolean => {
+  const rawSegment = text.slice(
+    displayNameStartIndex,
+    displayNameStartIndex + candidate.displayName.length,
+  );
+
+  return normalizeMentionText(rawSegment) === candidate.normalizedDisplayName;
+};
 
 const findMentionCandidate = (
   text: string,
@@ -82,8 +102,8 @@ const findMentionCandidate = (
     const displayNameEndIndex = displayNameStartIndex + candidate.displayName.length;
 
     return (
-      text.startsWith(candidate.displayName, displayNameStartIndex) &&
-      isBoundaryCharacter(text[displayNameEndIndex])
+      startsWithCandidate(text, displayNameStartIndex, candidate) &&
+      isMentionEnd(text[displayNameEndIndex])
     );
   });
 
@@ -94,7 +114,7 @@ const findMentionCandidate = (
   return candidates.find(
     (candidate) =>
       candidate.canMatchWithoutBoundary &&
-      text.startsWith(candidate.displayName, displayNameStartIndex),
+      startsWithCandidate(text, displayNameStartIndex, candidate),
   );
 };
 
