@@ -257,6 +257,35 @@ assert.ok(isRecord(promptCall.body));
 assert.ok(Array.isArray(promptCall.body.parts));
 assert.match(JSON.stringify(promptCall.body.parts), /Please inspect the repo/);
 
+const configuredFetch = createFetch(["oc-session-configured"]);
+const configuredProcessStarts: OpenCodeServeProcessRunnerInput[] = [];
+const configuredAdapter = new OpenCodeServeRuntimeAdapter({
+  baseUrl,
+  fetchImpl: configuredFetch.fetchImpl,
+  processRunner: createProcessRunner(configuredProcessStarts),
+  eventStreamFactory: () =>
+    streamEvents([{ type: "session.status", sessionID: "oc-session-configured", status: "idle" }]),
+  model: { providerID: "azure", modelID: "gpt-5.5" },
+  variant: "xhigh",
+  agent: "build",
+  now: () => now,
+  healthAttempts: 1,
+  healthRetryDelayMs: 0,
+});
+await collectRuntimeEvents(
+  (await configuredAdapter.startRun({ run: createRun("configured"), projection })).events,
+);
+const configuredPromptCall = configuredFetch.calls.find((call) =>
+  call.url.endsWith("/prompt_async"),
+);
+assert.ok(configuredPromptCall !== undefined);
+assert.ok(isRecord(configuredPromptCall.body));
+assert.deepEqual(configuredPromptCall.body, {
+  parts: configuredPromptCall.body.parts,
+  model: { providerID: "azure", modelID: "gpt-5.5" },
+  variant: "xhigh",
+  agent: "build",
+});
 const reusedFetch = createFetch();
 const reusedProcessStarts: OpenCodeServeProcessRunnerInput[] = [];
 const reusedAdapter = createAdapter({

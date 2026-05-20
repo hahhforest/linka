@@ -1,5 +1,11 @@
-import type { RuntimeAdapter } from "@linka/harness";
 import {
+  OpenCodeServeRuntimeAdapter,
+  type OpenCodeServeModelRef,
+  type OpenCodeServeRuntimeAdapterOptions,
+  type RuntimeAdapter,
+} from "@linka/harness";
+import {
+  harnessTriggerId,
   roomMessageId,
   unixMs,
   type Room,
@@ -7,6 +13,9 @@ import {
   type RoomNotificationPolicy,
   type RoomVisibility,
   type RuntimeEvent,
+  type AgentParticipationPolicy,
+  type HarnessSessionId,
+  type RuntimeSessionRef,
   type UnixMs,
 } from "@linka/shared";
 
@@ -17,20 +26,56 @@ import { startHarnessRun } from "./run-service.js";
 
 export const DEFAULT_OPENCODE_MODEL = "azure/gpt-5.5";
 export const DEFAULT_OPENCODE_VARIANT = "xhigh";
+export const DEFAULT_OPENCODE_AGENT = "build";
 
 export interface CreateOpenCodeRoomHarnessRunnerOptions {
   readonly container: Pick<
     DaemonContainer,
-    "roomStore" | "messageStore" | "docStore" | "harnessRunStore" | "eventStore" | "eventBus"
+    | "roomStore"
+    | "messageStore"
+    | "docStore"
+    | "harnessRunStore"
+    | "harnessSessionStore"
+    | "eventStore"
+    | "eventBus"
   >;
   readonly adapter?: RuntimeAdapter;
+  readonly policy?: AgentParticipationPolicy;
   readonly now?: () => Date | number;
 }
+
+type DefaultOpenCodeServeRuntimeAdapterOptions = Omit<
+  OpenCodeServeRuntimeAdapterOptions,
+  "model" | "variant" | "agent"
+>;
+
+export const parseOpenCodeModelRef = (model: string): OpenCodeServeModelRef => {
+  const slashIndex = model.indexOf("/");
+  if (slashIndex <= 0 || slashIndex === model.length - 1) {
+    throw new Error(`OpenCode model must be provider/model, got: ${model}`);
+  }
+
+  return {
+    providerID: model.slice(0, slashIndex),
+    modelID: model.slice(slashIndex + 1),
+  };
+};
+
+export const createDefaultOpenCodeServeRuntimeAdapter = (
+  options: DefaultOpenCodeServeRuntimeAdapterOptions = {},
+): OpenCodeServeRuntimeAdapter =>
+  new OpenCodeServeRuntimeAdapter({
+    ...options,
+    model: parseOpenCodeModelRef(DEFAULT_OPENCODE_MODEL),
+    variant: DEFAULT_OPENCODE_VARIANT,
+    agent: DEFAULT_OPENCODE_AGENT,
+  });
 
 const defaultVisibility: RoomVisibility = { scope: "room" };
 const defaultNotificationPolicy: RoomNotificationPolicy = { level: "normal" };
 
 const createMessageApiId = (): RoomMessage["id"] => roomMessageId(`rmsg_${crypto.randomUUID()}`);
+const createHarnessTriggerApiId = () => harnessTriggerId(`htrig_${crypto.randomUUID()}`);
 const createDaemonEventId = (): string => `evt_${crypto.randomUUID()}`;
 
 const readNow = (now: CreateOpenCodeRoomHarnessRunnerOptions["now"]): UnixMs => {
@@ -112,24 +157,66 @@ const appendOutputMessage = (
     notification: defaultNotificationPolicy,
   });
 
+const defaultPolicy: AgentParticipationPolicy = {
+  triggerMode: "mention_only",
+  maxConcurrentTurns: 1,
+  allowAutonomousContinue: false,
+  visibleContext: "room",
+};
+
+const bindSessionRuntime = (
+  container: CreateOpenCodeRoomHarnessRunnerOptions["container"],
+  sessionId: HarnessSessionId,
+  runtime: RuntimeSessionRef | undefined,
+  updatedAt: UnixMs,
+): void => {
+  if (runtime === undefined) return;
+
+  container.harnessSessionStore.bindRuntimeSession({
+    id: sessionId,
+    runtime,
+    updatedAt,
+  });
+};
+
 export const createOpenCodeRoomHarnessRunner = ({
   container,
   adapter,
+  policy = defaultPolicy,
   now,
 }: CreateOpenCodeRoomHarnessRunnerOptions): RoomHarnessRunner => {
-  if (!adapter) {
-    throw new Error("OpenCode room harness runner requires a runtime adapter");
-  }
+  const runtimeAdapter = adapter ?? createDefaultOpenCodeServeRuntimeAdapter();
 
   return async (input) => {
+    const session = container.harnessSessionStore.getOrCreateSessionByRoomAgent(
+      input.room.id,
+      input.targetMember.id,
+      policy,
+    );
+    const triggeredAt = readNow(now);
+    container.harnessSessionStore.createTrigger({
+      id: createHarnessTriggerApiId(),
+      sessionId: session.id,
+      roomId: input.room.id,
+      agentMemberId: input.targetMember.id,
+      kind: "member_mentioned",
+      status: "pending",
+      createdAt: triggeredAt,
+      updatedAt: triggeredAt,
+      sourceMessageId: input.message.id,
+      attemptCount: 0,
+    });
+
     const result = await startHarnessRun({
       container,
-      adapter,
+      adapter: runtimeAdapter,
       roomId: input.room.id,
       targetMemberId: input.targetMember.id,
       triggerMessageId: input.message.id,
+      runtime: session.runtime,
       now,
     });
+    bindSessionRuntime(container, session.id, result.run.runtime, readNow(now));
     const outputText =
       selectLastAdapterOutputText(result.events) ??
       (result.run.status === "failed" ? formatFailureReplyText(result.run.error) : undefined);

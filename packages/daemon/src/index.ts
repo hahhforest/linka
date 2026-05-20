@@ -1,5 +1,9 @@
 import { createDaemonApp } from "./app.js";
 import { createDaemonContainer } from "./container/index.js";
+import {
+  createDefaultOpenCodeServeRuntimeAdapter,
+  createOpenCodeRoomHarnessRunner,
+} from "./harness/opencode-room-runner.js";
 import { createDaemonServer } from "./server.js";
 
 export { createDaemonApp } from "./app.js";
@@ -19,7 +23,13 @@ const isEntrypoint = process.argv[1]
 
 if (isEntrypoint) {
   const container = createDaemonContainer();
-  const app = createDaemonApp(container);
+  const adapter = createDefaultOpenCodeServeRuntimeAdapter({
+    cwd: process.cwd(),
+    env: process.env,
+  });
+  const app = createDaemonApp(container, {
+    rooms: { harnessRunner: createOpenCodeRoomHarnessRunner({ container, adapter }) },
+  });
   const server = createDaemonServer({ app, port: container.port, hostname: "127.0.0.1" });
 
   server.start();

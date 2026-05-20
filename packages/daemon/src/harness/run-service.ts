@@ -27,6 +27,7 @@ export interface StartHarnessRunInput {
   readonly roomId: Room["id"];
   readonly targetMemberId: RoomMember["id"];
   readonly triggerMessageId?: RoomMessage["id"];
+  readonly runtime?: RuntimeSessionRef;
   readonly docIds?: readonly DocId[];
   readonly now?: () => Date | number;
 }
@@ -210,6 +211,7 @@ export const startHarnessRun = async ({
   roomId,
   targetMemberId,
   triggerMessageId,
+  runtime,
   docIds,
   now,
 }: StartHarnessRunInput): Promise<StartHarnessRunResult> => {
@@ -246,11 +248,13 @@ export const startHarnessRun = async ({
     docs,
     docComments,
   });
+  ensureRuntimeSession(container.harnessRunStore, runtime);
   const run = container.harnessRunStore.createRun({
     id: createRunId(),
     roomId,
     targetMemberId,
     status: "running",
+    ...(runtime === undefined ? {} : { runtime }),
     createdAt,
     updatedAt: createdAt,
     startedAt: createdAt,

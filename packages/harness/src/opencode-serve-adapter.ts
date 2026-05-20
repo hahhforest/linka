@@ -58,6 +58,11 @@ export type OpenCodeServeEventStreamFactory = (
   input: OpenCodeServeEventStreamFactoryInput,
 ) => AsyncIterable<OpenCodeServeEvent>;
 
+export interface OpenCodeServeModelRef {
+  readonly providerID: string;
+  readonly modelID: string;
+}
+
 export interface OpenCodeServeRuntimeAdapterOptions {
   readonly command?: string;
   readonly port?: number;
@@ -68,6 +73,9 @@ export interface OpenCodeServeRuntimeAdapterOptions {
   readonly fetchImpl?: typeof fetch;
   readonly processRunner?: OpenCodeServeProcessRunner;
   readonly eventStreamFactory?: OpenCodeServeEventStreamFactory;
+  readonly model?: OpenCodeServeModelRef;
+  readonly variant?: string;
+  readonly agent?: string;
   readonly now?: () => UnixMs;
   readonly healthAttempts?: number;
   readonly healthRetryDelayMs?: number;
@@ -296,6 +304,9 @@ export class OpenCodeServeRuntimeAdapter implements RuntimeAdapter {
   private readonly fetchImpl: typeof fetch;
   private readonly processRunner: OpenCodeServeProcessRunner;
   private readonly eventStreamFactory: OpenCodeServeEventStreamFactory;
+  private readonly model?: OpenCodeServeModelRef;
+  private readonly variant?: string;
+  private readonly agent?: string;
   private readonly now: () => UnixMs;
   private readonly healthAttempts: number;
   private readonly healthRetryDelayMs: number;
@@ -312,6 +323,9 @@ export class OpenCodeServeRuntimeAdapter implements RuntimeAdapter {
     this.fetchImpl = getFetch(options.fetchImpl);
     this.processRunner = options.processRunner ?? defaultOpenCodeServeProcessRunner;
     this.eventStreamFactory = options.eventStreamFactory ?? createOpenCodeServeEventStream;
+    this.model = options.model;
+    this.variant = options.variant;
+    this.agent = options.agent;
     this.now = options.now ?? (() => unixMs(Date.now()));
     this.healthAttempts = options.healthAttempts ?? DEFAULT_HEALTH_ATTEMPTS;
     this.healthRetryDelayMs = options.healthRetryDelayMs ?? DEFAULT_HEALTH_RETRY_DELAY_MS;
@@ -445,7 +459,12 @@ export class OpenCodeServeRuntimeAdapter implements RuntimeAdapter {
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ parts }),
+        body: JSON.stringify({
+          parts,
+          ...(this.model === undefined ? {} : { model: this.model }),
+          ...(this.variant === undefined ? {} : { variant: this.variant }),
+          ...(this.agent === undefined ? {} : { agent: this.agent }),
+        }),
         signal,
       },
     );

@@ -100,6 +100,7 @@ const readState = async ({ room, linka, trigger }) => {
   const runs = (await request(`/rooms/${room.id}/harness-runs`)).runs;
   const run = runs.at(-1);
   const events = run ? (await request(`/harness-runs/${run.id}/events`)).events : [];
+  const sessions = (await request(`/rooms/${room.id}/harness-sessions`)).sessions;
   const messages = (await request(`/rooms/${room.id}/messages?afterSequence=0&limit=100`)).messages;
   const reply = messages.find(
     (message) =>
@@ -108,63 +109,85 @@ const readState = async ({ room, linka, trigger }) => {
       message.replyTo?.messageId === trigger.id,
   );
 
-  return { run, events, reply, messages };
+  return { run, events, sessions, reply, messages };
+};
+
+const waitForSucceededReply = async (fixture) => {
+  let state = { run: undefined, events: [], sessions: [], reply: undefined, messages: [] };
+
+  while (Date.now() - startedAt < timeoutMs) {
+    state = await readState(fixture);
+    const status = state.run?.status;
+
+    if (status === "failed" || status === "cancelled") break;
+    if (status === "succeeded" && state.reply) break;
+
+    await delay(pollMs);
+  }
+
+  if (!state.run) throw new Error("no harness run was created");
+  if (state.run.status !== "succeeded") {
+    throw new Error(`harness run did not succeed: ${state.run.status} ${state.run.error ?? ""}`);
+  }
+  if (!state.reply) throw new Error("no LinkA reply message was created");
+  if (!String(state.reply.text ?? "").includes(expectedReply.replace(/。$/u, ""))) {
+    throw new Error(`LinkA reply did not include expected text: ${state.reply.text ?? "<empty>"}`);
+  }
+
+  return state;
 };
 
 await assertDaemon();
 const fixture = await createFixture();
-let lastState = { run: undefined, events: [], reply: undefined, messages: [] };
+const firstState = await waitForSucceededReply(fixture);
+const firstSession = firstState.sessions[0];
 
-while (Date.now() - startedAt < timeoutMs) {
-  lastState = await readState(fixture);
-  const status = lastState.run?.status;
+if (!firstSession?.runtime?.adapterSessionId) {
+  throw new Error("first mention did not bind a harness runtime session");
+}
 
-  if (status === "failed" || status === "cancelled") {
-    break;
-  }
+const secondTrigger = (
+  await post(`/rooms/${fixture.room.id}/messages`, {
+    senderMemberId: fixture.human.id,
+    kind: "instruction",
+    text: `@LinkA 请继续使用同一个 OpenCode session，并只回复：${expectedReply}`,
+    mentions: [{ memberId: fixture.linka.id, displayText: "@LinkA" }],
+  })
+).message;
+const secondState = await waitForSucceededReply({ ...fixture, trigger: secondTrigger });
+const secondSession = secondState.sessions[0];
 
-  if (status === "succeeded" && lastState.reply) {
-    break;
-  }
+if (secondState.sessions.length !== 1 || secondSession?.id !== firstSession.id) {
+  throw new Error("mention triggers did not reuse the same harness session");
+}
 
-  await delay(pollMs);
+if (secondSession.runtime?.adapterSessionId !== firstSession.runtime.adapterSessionId) {
+  throw new Error("mention triggers did not reuse the same runtime adapter session");
 }
 
 const result = {
   roomId: fixture.room.id,
   docId: fixture.doc.id,
-  triggerMessageId: fixture.trigger.id,
-  run: lastState.run
-    ? {
-        id: lastState.run.id,
-        status: lastState.run.status,
-        summary: lastState.run.summary,
-        error: lastState.run.error,
-        completedAt: lastState.run.completedAt,
-      }
-    : null,
-  eventTypes: lastState.events.map((event) => event.type),
-  replyText: lastState.reply?.text ?? null,
+  firstTriggerMessageId: fixture.trigger.id,
+  secondTriggerMessageId: secondTrigger.id,
+  harnessSessionId: secondSession.id,
+  adapterSessionId: secondSession.runtime?.adapterSessionId ?? null,
+  firstRun: {
+    id: firstState.run.id,
+    status: firstState.run.status,
+    summary: firstState.run.summary,
+    error: firstState.run.error,
+    completedAt: firstState.run.completedAt,
+  },
+  secondRun: {
+    id: secondState.run.id,
+    status: secondState.run.status,
+    summary: secondState.run.summary,
+    error: secondState.run.error,
+    completedAt: secondState.run.completedAt,
+  },
+  secondEventTypes: secondState.events.map((event) => event.type),
+  secondReplyText: secondState.reply?.text ?? null,
 };
 
 console.log(JSON.stringify(result, null, 2));
-
-if (!lastState.run) {
-  throw new Error("no harness run was created");
-}
-
-if (lastState.run.status !== "succeeded") {
-  throw new Error(
-    `harness run did not succeed: ${lastState.run.status} ${lastState.run.error ?? ""}`,
-  );
-}
-
-if (!lastState.reply) {
-  throw new Error("no LinkA reply message was created");
-}
-
-if (!String(lastState.reply.text ?? "").includes(expectedReply.replace(/。$/u, ""))) {
-  throw new Error(
-    `LinkA reply did not include expected text: ${lastState.reply.text ?? "<empty>"}`,
-  );
-}

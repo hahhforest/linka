@@ -31,6 +31,7 @@ import { createEventBus } from "../event-bus/index.js";
 import { createDocStore } from "../store/doc-store.js";
 import { createEventStore, type PersistedDaemonEvent } from "../store/event-store.js";
 import { createHarnessRunStore } from "../store/harness-run-store.js";
+import { createHarnessSessionStore } from "../store/harness-session-store.js";
 import { createMessageStore } from "../store/message-store.js";
 import { createRoomStore } from "../store/room-store.js";
 import {
@@ -161,7 +162,16 @@ const withOpenCodeRunnerContext = async (
     const messageStore = createMessageStore(handle);
     const docStore = createDocStore(handle);
     const harnessRunStore = createHarnessRunStore(handle);
-    const container = { eventStore, eventBus, roomStore, messageStore, docStore, harnessRunStore };
+    const harnessSessionStore = createHarnessSessionStore(handle);
+    const container = {
+      eventStore,
+      eventBus,
+      roomStore,
+      messageStore,
+      docStore,
+      harnessRunStore,
+      harnessSessionStore,
+    };
     const room = roomStore.createRoom(makeRoom());
     const human = roomStore.addMember(makeMember("human", "human", "owner"));
     const agent = roomStore.addMember(makeMember("agent", "agent", "member"));
@@ -267,6 +277,174 @@ await withOpenCodeRunnerContext(
   },
 );
 
+await withOpenCodeRunnerContext(async ({ container, room, members, human, agent, message }) => {
+  const receivedRuntimeIds: Array<string | undefined> = [];
+  const adapter = {
+    getCapabilities: () => capabilities,
+    startRun: async (input) => {
+      receivedRuntimeIds.push(input.run.runtime?.adapterSessionId);
+      const runtime =
+        input.run.runtime ??
+        ({
+          id: runtimeSessionId("rsess_opencode_same_room"),
+          kind: "test",
+          adapterSessionId: "same-room-adapter-session",
+          label: "Same Room Runtime",
+        } satisfies RuntimeSessionRef);
+      const suffix = String(receivedRuntimeIds.length);
+
+      return {
+        events: runtimeEvents([
+          {
+            id: runtimeEventId(`rtevt_opencode_same_room_started_${suffix}`),
+            runId: input.run.id,
+            roomId: input.run.roomId,
+            targetMemberId: input.run.targetMemberId,
+            sequence: 1,
+            type: "run.started",
+            createdAt: now,
+            runtime,
+            payload: { kind: "run_status", status: "running", message: "started" },
+          },
+          {
+            id: runtimeEventId(`rtevt_opencode_same_room_output_${suffix}`),
+            runId: input.run.id,
+            roomId: input.run.roomId,
+            targetMemberId: input.run.targetMemberId,
+            sequence: 2,
+            type: "adapter.output",
+            createdAt: now,
+            runtime,
+            payload: { kind: "adapter_output", stream: "summary", text: `answer ${suffix}` },
+          },
+        ]),
+      };
+    },
+  } satisfies RuntimeAdapter;
+  const runner = createOpenCodeRoomHarnessRunner({ container, adapter, now: () => now });
+
+  await runner({ room, members, message, targetMember: agent });
+  const secondMessage = container.messageStore.appendMessage({
+    id: roomMessageId("rmsg_opencode_trigger_second"),
+    roomId: room.id,
+    sender: { kind: "member", memberId: human.id },
+    kind: "text",
+    createdAt: now,
+    text: "@agent please continue in the same runtime session",
+    mentions: [{ memberId: agent.id, displayText: "@agent" }],
+    visibility: roomVisibility,
+    notification: notificationPolicy,
+  });
+  await runner({ room, members, message: secondMessage, targetMember: agent });
+
+  assert.deepEqual(receivedRuntimeIds, [undefined, "same-room-adapter-session"]);
+
+  const sessions = container.harnessSessionStore.listSessionsByRoom(room.id);
+  assert.equal(sessions.length, 1);
+  const session = sessions[0];
+  assert.ok(session);
+  assert.equal(session.roomId, room.id);
+  assert.equal(session.agentMemberId, agent.id);
+  assert.equal(session.runtime?.adapterSessionId, "same-room-adapter-session");
+  const triggers = container.harnessSessionStore.listTriggersBySession(session.id);
+  assert.equal(triggers.length, 2);
+  assert.deepEqual(
+    new Set(triggers.map((trigger) => trigger.sourceMessageId)),
+    new Set([message.id, secondMessage.id]),
+  );
+
+  const runs = container.harnessRunStore.listRunsByRoom(room.id);
+  assert.equal(runs.length, 2);
+  assert.equal(runs[0]?.runtime?.adapterSessionId, "same-room-adapter-session");
+  assert.equal(runs[1]?.runtime?.adapterSessionId, "same-room-adapter-session");
+});
+
+await withOpenCodeRunnerContext(async ({ container, room, members, human, agent, message }) => {
+  const otherRoom = container.roomStore.createRoom({
+    ...makeRoom(),
+    id: roomId("room_opencode_runner_other"),
+    displayName: "Other OpenCode Runner Room",
+  });
+  const otherHuman = container.roomStore.addMember({
+    ...makeMember("human_other", "human", "owner"),
+    id: roomMemberId("rmem_opencode_human_other"),
+    roomId: otherRoom.id,
+    participantId: participantId("part_opencode_human_other"),
+  });
+  const otherAgent = container.roomStore.addMember({
+    ...makeMember("agent_other", "agent", "member"),
+    id: roomMemberId("rmem_opencode_agent_other"),
+    roomId: otherRoom.id,
+    participantId: participantId("part_opencode_agent_other"),
+  });
+  const otherMembers = container.roomStore.listMembers(otherRoom.id);
+  const otherMessage = container.messageStore.appendMessage({
+    id: roomMessageId("rmsg_opencode_trigger_other_room"),
+    roomId: otherRoom.id,
+    sender: { kind: "member", memberId: otherHuman.id },
+    kind: "text",
+    createdAt: now,
+    text: "@agent please use an isolated runtime session",
+    mentions: [{ memberId: otherAgent.id, displayText: "@agent" }],
+    visibility: roomVisibility,
+    notification: notificationPolicy,
+  });
+  let createdRuntimeIndex = 0;
+  const adapter = {
+    getCapabilities: () => capabilities,
+    startRun: async (input) => {
+      const runtime =
+        input.run.runtime ??
+        ({
+          id: runtimeSessionId(`rsess_opencode_room_isolation_${createdRuntimeIndex}`),
+          kind: "test",
+          adapterSessionId: `isolated-adapter-session-${createdRuntimeIndex++}`,
+          label: "Isolated Runtime",
+        } satisfies RuntimeSessionRef);
+
+      return {
+        events: runtimeEvents([
+          {
+            id: runtimeEventId(
+              `rtevt_opencode_room_isolation_${input.run.id.replace(/[^A-Za-z0-9._-]/g, "_")}`,
+            ),
+            runId: input.run.id,
+            roomId: input.run.roomId,
+            targetMemberId: input.run.targetMemberId,
+            sequence: 1,
+            type: "run.started",
+            createdAt: now,
+            runtime,
+            payload: { kind: "run_status", status: "running", message: "started" },
+          },
+        ]),
+      };
+    },
+  } satisfies RuntimeAdapter;
+  const runner = createOpenCodeRoomHarnessRunner({ container, adapter, now: () => now });
+
+  await runner({ room, members, message, targetMember: agent });
+  await runner({
+    room: otherRoom,
+    members: otherMembers,
+    message: otherMessage,
+    targetMember: otherAgent,
+  });
+
+  const roomSession = container.harnessSessionStore.listSessionsByRoom(room.id)[0];
+  const otherRoomSession = container.harnessSessionStore.listSessionsByRoom(otherRoom.id)[0];
+  assert.ok(roomSession);
+  assert.ok(otherRoomSession);
+  assert.notEqual(roomSession.id, otherRoomSession.id);
+  assert.notEqual(
+    roomSession.runtime?.adapterSessionId,
+    otherRoomSession.runtime?.adapterSessionId,
+  );
+  assert.deepEqual(
+    [roomSession.runtime?.adapterSessionId, otherRoomSession.runtime?.adapterSessionId],
+    ["isolated-adapter-session-0", "isolated-adapter-session-1"],
+  );
+});
 await withOpenCodeRunnerContext(async ({ container, room, members, agent, message }) => {
   const runtime: RuntimeSessionRef = {
     id: runtimeSessionId("rsess_opencode_runner_output"),

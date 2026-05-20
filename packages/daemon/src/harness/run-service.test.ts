@@ -261,6 +261,53 @@ await withRunServiceContext(async ({ container, room, agent, message, doc, comme
   assert.deepEqual(container.harnessRunStore.getRuntimeSession(runtime.id), runtime);
 });
 
+await withRunServiceContext(async ({ container, room, agent, message }) => {
+  const existingRuntime: RuntimeSessionRef = {
+    id: runtimeSessionId("rsess_run_service_existing"),
+    kind: "test",
+    adapterSessionId: "existing-adapter-session",
+    label: "Existing Runtime",
+  };
+  let receivedRun: HarnessRun | undefined;
+  const adapter = {
+    getCapabilities: () => capabilities,
+    startRun: async (input) => {
+      receivedRun = input.run;
+      return {
+        events: runtimeEvents([
+          {
+            id: runtimeEventId("rtevt_service_existing_runtime"),
+            runId: input.run.id,
+            roomId: input.run.roomId,
+            targetMemberId: input.run.targetMemberId,
+            sequence: 1,
+            type: "run.started",
+            createdAt: now,
+            runtime: existingRuntime,
+            payload: { kind: "run_status", status: "running", message: "started" },
+          },
+        ]),
+      };
+    },
+  } satisfies RuntimeAdapter;
+
+  const result = await startHarnessRun({
+    container,
+    adapter,
+    roomId: room.id,
+    targetMemberId: agent.id,
+    triggerMessageId: message.id,
+    runtime: existingRuntime,
+    now: () => now,
+  });
+
+  assert.deepEqual(receivedRun?.runtime, existingRuntime);
+  assert.deepEqual(result.run.runtime, existingRuntime);
+  assert.deepEqual(
+    container.harnessRunStore.getRuntimeSession(existingRuntime.id),
+    existingRuntime,
+  );
+});
 await withRunServiceContext(async ({ container, room, human }) => {
   const adapter = {
     getCapabilities: () => capabilities,
