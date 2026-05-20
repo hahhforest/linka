@@ -5,11 +5,12 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { resolvePort } from "@linka/config";
-import { roomId, roomMemberId } from "@linka/shared";
+import { harnessSessionId, roomId, roomMemberId, unixMs } from "@linka/shared";
 
 import type { EventStore } from "../store/event-store.js";
 import type { DocStore } from "../store/doc-store.js";
 import type { HarnessRunStore } from "../store/harness-run-store.js";
+import type { HarnessSessionStore } from "../store/harness-session-store.js";
 import type { MessageStore } from "../store/message-store.js";
 import type { RoomStore } from "../store/room-store.js";
 import { createDaemonContainer } from "./index.js";
@@ -62,8 +63,20 @@ test("createDaemonContainer lets LINKA_PORT override explicit profile derived po
 });
 
 test("createDaemonContainer returns independent plain objects", () => {
-  const first = createDaemonContainer({ databasePath: ":memory:", env: {}, git: null, home: "/tmp/a", profile: "alpha" });
-  const second = createDaemonContainer({ databasePath: ":memory:", env: {}, git: null, home: "/tmp/b", profile: "beta" });
+  const first = createDaemonContainer({
+    databasePath: ":memory:",
+    env: {},
+    git: null,
+    home: "/tmp/a",
+    profile: "alpha",
+  });
+  const second = createDaemonContainer({
+    databasePath: ":memory:",
+    env: {},
+    git: null,
+    home: "/tmp/b",
+    profile: "beta",
+  });
 
   try {
     assert.notEqual(first, second);
@@ -79,7 +92,13 @@ test("createDaemonContainer returns independent plain objects", () => {
 test("createDaemonContainer opens SQLite, runs migrations, and creates stores", () => {
   const root = mkdtempSync(join(tmpdir(), "linka-daemon-container-"));
   const databasePath = join(root, "nested", "linka.sqlite");
-  const container = createDaemonContainer({ databasePath, env: {}, git: null, home: root, profile: "db-test" });
+  const container = createDaemonContainer({
+    databasePath,
+    env: {},
+    git: null,
+    home: root,
+    profile: "db-test",
+  });
 
   try {
     assert.equal(container.databasePath, databasePath);
@@ -87,6 +106,7 @@ test("createDaemonContainer opens SQLite, runs migrations, and creates stores", 
     assert.equal(container.eventBus.getSubscriberCount(), 0);
     assert.equal(typeof container.docStore.createDoc, "function");
     assert.equal(typeof container.harnessRunStore.createRun, "function");
+    assert.equal(typeof container.harnessSessionStore.createSession, "function");
     assert.deepEqual(container.docStore.listDocsByRoom(roomId("room_empty")), []);
     assert.deepEqual(container.harnessRunStore.listRunsByRoom(roomId("room_empty")), []);
 
@@ -152,6 +172,76 @@ test("createDaemonContainer uses provided stores without opening SQLite", () => 
     listEvents: () => [],
   } satisfies HarnessRunStore;
 
+  const harnessSessionStore = {
+    createSession: (session) => session,
+    getSession: () => undefined,
+    getSessionByRoomAgent: () => undefined,
+    listSessions: () => [],
+    listSessionsByRoom: () => [],
+    getOrCreateSessionByRoomAgent: (contextRoomId, agentMemberId, policy) => ({
+      id: harnessSessionId("hsess_empty"),
+      roomId: contextRoomId,
+      agentMemberId,
+      status: "idle",
+      policy,
+      createdAt: unixMs(0),
+      updatedAt: unixMs(0),
+    }),
+    updateSessionStatus: (update) => ({
+      id: update.id,
+      roomId: roomId("room_empty"),
+      agentMemberId: roomMemberId("rmem_empty"),
+      status: update.status,
+      policy: {
+        triggerMode: "mention_only",
+        maxConcurrentTurns: 1,
+        allowAutonomousContinue: false,
+        visibleContext: "room",
+      },
+      createdAt: update.updatedAt,
+      updatedAt: update.updatedAt,
+      ...(update.lastTurnId === undefined ? {} : { lastTurnId: update.lastTurnId ?? undefined }),
+      ...(update.lastTriggerId === undefined
+        ? {}
+        : { lastTriggerId: update.lastTriggerId ?? undefined }),
+      ...(update.error === undefined ? {} : { error: update.error ?? undefined }),
+    }),
+    bindRuntimeSession: (input) => ({
+      id: input.id,
+      roomId: roomId("room_empty"),
+      agentMemberId: roomMemberId("rmem_empty"),
+      status: "idle",
+      runtime: input.runtime,
+      policy: {
+        triggerMode: "mention_only",
+        maxConcurrentTurns: 1,
+        allowAutonomousContinue: false,
+        visibleContext: "room",
+      },
+      createdAt: input.updatedAt,
+      updatedAt: input.updatedAt,
+    }),
+    createTrigger: (trigger) => trigger,
+    getTrigger: () => undefined,
+    listTriggersBySession: () => [],
+    claimTrigger: () => undefined,
+    updateTriggerStatus: (update) => ({
+      id: update.id,
+      sessionId: harnessSessionId("hsess_empty"),
+      roomId: roomId("room_empty"),
+      agentMemberId: roomMemberId("rmem_empty"),
+      kind: "member_mentioned",
+      status: update.status,
+      createdAt: update.updatedAt,
+      updatedAt: update.updatedAt,
+      attemptCount: update.attemptCount ?? 0,
+      ...(update.claimedTurnId === undefined
+        ? {}
+        : { claimedTurnId: update.claimedTurnId ?? undefined }),
+      ...(update.error === undefined ? {} : { error: update.error ?? undefined }),
+    }),
+  } satisfies HarnessSessionStore;
+
   const container = createDaemonContainer({
     databasePath: "",
     env: {},
@@ -163,6 +253,7 @@ test("createDaemonContainer uses provided stores without opening SQLite", () => 
     messageStore,
     docStore,
     harnessRunStore,
+    harnessSessionStore,
   });
 
   try {
@@ -173,6 +264,7 @@ test("createDaemonContainer uses provided stores without opening SQLite", () => 
     assert.equal(container.messageStore, messageStore);
     assert.equal(container.docStore, docStore);
     assert.equal(container.harnessRunStore, harnessRunStore);
+    assert.equal(container.harnessSessionStore, harnessSessionStore);
   } finally {
     container.close();
   }

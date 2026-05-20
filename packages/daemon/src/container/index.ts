@@ -9,6 +9,10 @@ import { createEventBus, type EventBus } from "../event-bus/index.js";
 import { createDocStore, type DocStore } from "../store/doc-store.js";
 import { createEventStore, type EventStore } from "../store/event-store.js";
 import { createHarnessRunStore, type HarnessRunStore } from "../store/harness-run-store.js";
+import {
+  createHarnessSessionStore,
+  type HarnessSessionStore,
+} from "../store/harness-session-store.js";
 import { createMessageStore, type MessageStore } from "../store/message-store.js";
 import { createRoomStore, type RoomStore } from "../store/room-store.js";
 
@@ -37,6 +41,7 @@ export interface DaemonContainerOptions {
   messageStore?: MessageStore;
   docStore?: DocStore;
   harnessRunStore?: HarnessRunStore;
+  harnessSessionStore?: HarnessSessionStore;
 }
 
 export interface DaemonContainer {
@@ -53,6 +58,7 @@ export interface DaemonContainer {
   readonly messageStore: MessageStore;
   readonly docStore: DocStore;
   readonly harnessRunStore: HarnessRunStore;
+  readonly harnessSessionStore: HarnessSessionStore;
   readonly uptimeMs: () => number;
   readonly close: () => void;
 }
@@ -69,15 +75,19 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
     options.roomStore !== undefined &&
     options.messageStore !== undefined &&
     options.docStore !== undefined &&
-    options.harnessRunStore !== undefined;
+    options.harnessRunStore !== undefined &&
+    options.harnessSessionStore !== undefined;
   const ownsDatabase = options.database === undefined && !allStoresProvided;
-  const database = options.database ?? (allStoresProvided ? null : openContainerDatabase(databasePath));
+  const database =
+    options.database ?? (allStoresProvided ? null : openContainerDatabase(databasePath));
   const eventStore = options.eventStore ?? createMigratedEventStore(database);
   const eventBus = options.eventBus ?? createEventBus();
   const roomStore = options.roomStore ?? createMigratedRoomStore(database);
   const messageStore = options.messageStore ?? createMigratedMessageStore(database);
   const docStore = options.docStore ?? createMigratedDocStore(database);
   const harnessRunStore = options.harnessRunStore ?? createMigratedHarnessRunStore(database);
+  const harnessSessionStore =
+    options.harnessSessionStore ?? createMigratedHarnessSessionStore(database);
 
   return {
     profile,
@@ -93,6 +103,7 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
     messageStore,
     docStore,
     harnessRunStore,
+    harnessSessionStore,
     uptimeMs: () => Math.max(0, now().getTime() - startedAt.getTime()),
     close: () => {
       if (ownsDatabase) {
@@ -161,4 +172,13 @@ function createMigratedHarnessRunStore(database: DatabaseHandle | null): Harness
 
   runMigrations(database);
   return createHarnessRunStore(database);
+}
+
+function createMigratedHarnessSessionStore(database: DatabaseHandle | null): HarnessSessionStore {
+  if (!database) {
+    throw new Error("database is required when harnessSessionStore is not provided");
+  }
+
+  runMigrations(database);
+  return createHarnessSessionStore(database);
 }

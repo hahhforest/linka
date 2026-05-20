@@ -225,6 +225,53 @@ CREATE INDEX IF NOT EXISTS idx_harness_run_events_room_created
   ON harness_run_events (room_id, created_at);
 `,
   },
+  {
+    version: 5,
+    name: "create_harness_sessions",
+    sql: `
+CREATE TABLE IF NOT EXISTS harness_sessions (
+  harness_session_id TEXT PRIMARY KEY,
+  room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  agent_member_id TEXT NOT NULL REFERENCES room_members(member_id),
+  status TEXT NOT NULL,
+  runtime_session_id TEXT REFERENCES runtime_sessions(runtime_session_id),
+  policy_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  last_turn_id TEXT,
+  last_trigger_id TEXT,
+  error TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_harness_sessions_room_agent
+  ON harness_sessions (room_id, agent_member_id);
+
+CREATE INDEX IF NOT EXISTS idx_harness_sessions_room_updated
+  ON harness_sessions (room_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS harness_triggers (
+  harness_trigger_id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES harness_sessions(harness_session_id) ON DELETE CASCADE,
+  room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  agent_member_id TEXT NOT NULL REFERENCES room_members(member_id),
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  source_message_id TEXT REFERENCES room_messages(message_id) ON DELETE SET NULL,
+  claimed_turn_id TEXT,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  payload_json TEXT,
+  error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_harness_triggers_session_created
+  ON harness_triggers (session_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_harness_triggers_room_status_created
+  ON harness_triggers (room_id, status, created_at);
+`,
+  },
 ];
 
 export const runMigrations = (handle: DatabaseHandle): MigrationResult => {

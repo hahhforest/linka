@@ -15,6 +15,7 @@ import {
   type DocComment,
   type DocRevision,
   type HarnessRun,
+  type HarnessSession,
   type RuntimeEvent,
 } from "@linka/shared";
 
@@ -1002,6 +1003,242 @@ test("doc API returns uniform errors for bad ids and missing docs", async () => 
     assert.deepEqual(missingDocBody, {
       ok: false,
       error: { code: "NOT_FOUND", message: "doc not found" },
+    });
+  } finally {
+    container.close();
+  }
+});
+
+test("harness session API creates and lists room-scoped agent sessions", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Harness Session API Room" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+    const humanResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          participantId: "part_hsess_api_human",
+          kind: "human",
+          displayName: "Session Human",
+        }),
+      },
+    );
+    const agentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          participantId: "part_hsess_api_agent",
+          kind: "agent",
+          displayName: "Session Agent",
+        }),
+      },
+    );
+    const humanBody = (await humanResponse.json()) as { ok: true; member: { id: string } };
+    const agentBody = (await agentResponse.json()) as { ok: true; member: { id: string } };
+    const policy = {
+      triggerMode: "mention_only",
+      maxConcurrentTurns: 1,
+      allowAutonomousContinue: false,
+      visibleContext: "room",
+    };
+
+    assert.equal(createRoomResponse.status, 201);
+    assert.equal(humanResponse.status, 201);
+    assert.equal(agentResponse.status, 201);
+
+    const createSessionResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/harness-sessions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentMemberId: agentBody.member.id, policy }),
+      },
+    );
+    const createSessionBody = (await createSessionResponse.json()) as {
+      ok: true;
+      session: HarnessSession;
+    };
+
+    assert.equal(createSessionResponse.status, 201);
+    assert.equal(createSessionBody.ok, true);
+    assert.equal(createSessionBody.session.roomId, createRoomBody.room.id);
+    assert.equal(createSessionBody.session.agentMemberId, agentBody.member.id);
+    assert.equal(createSessionBody.session.status, "idle");
+    assert.deepEqual(createSessionBody.session.policy, policy);
+    assert.equal(
+      container.harnessSessionStore.listSessionsByRoom(roomId(createRoomBody.room.id)).length,
+      1,
+    );
+
+    const createExistingResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/harness-sessions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentMemberId: agentBody.member.id,
+          policy: { ...policy, triggerMode: "manual" },
+        }),
+      },
+    );
+    const createExistingBody = (await createExistingResponse.json()) as {
+      ok: true;
+      session: HarnessSession;
+    };
+
+    assert.equal(createExistingResponse.status, 200);
+    assert.equal(createExistingBody.session.id, createSessionBody.session.id);
+    assert.deepEqual(createExistingBody.session.policy, policy);
+
+    const listResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/harness-sessions`,
+    );
+    const listBody = (await listResponse.json()) as {
+      ok: true;
+      sessions: readonly HarnessSession[];
+    };
+
+    assert.equal(listResponse.status, 200);
+    assert.deepEqual(listBody, { ok: true, sessions: [createSessionBody.session] });
+
+    const humanSessionResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/harness-sessions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentMemberId: humanBody.member.id }),
+      },
+    );
+    const humanSessionBody = await humanSessionResponse.json();
+
+    assert.equal(humanSessionResponse.status, 400);
+    assert.deepEqual(humanSessionBody, {
+      ok: false,
+      error: {
+        code: "BAD_REQUEST",
+        message: "agentMemberId must reference an agent room member",
+      },
+    });
+  } finally {
+    container.close();
+  }
+});
+
+test("harness session API returns uniform errors", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const badRoomIdResponse = await app.request(
+      "http://127.0.0.1/linka/rooms/not-a-room/harness-sessions",
+    );
+    const badRoomIdBody = await badRoomIdResponse.json();
+
+    assert.equal(badRoomIdResponse.status, 400);
+    assert.deepEqual(badRoomIdBody, {
+      ok: false,
+      error: { code: "BAD_REQUEST", message: "roomId must be a valid room id" },
+    });
+
+    const missingRoomResponse = await app.request(
+      "http://127.0.0.1/linka/rooms/room_missing/harness-sessions",
+    );
+    const missingRoomBody = await missingRoomResponse.json();
+
+    assert.equal(missingRoomResponse.status, 404);
+    assert.deepEqual(missingRoomBody, {
+      ok: false,
+      error: { code: "NOT_FOUND", message: "room not found" },
+    });
+
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Harness Session Error Room" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+
+    const badMemberIdResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/harness-sessions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentMemberId: "member_bad" }),
+      },
+    );
+    const badMemberIdBody = await badMemberIdResponse.json();
+
+    assert.equal(badMemberIdResponse.status, 400);
+    assert.deepEqual(badMemberIdBody, {
+      ok: false,
+      error: {
+        code: "BAD_REQUEST",
+        message: "agentMemberId must be a valid room member id",
+      },
+    });
+
+    const missingMemberResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/harness-sessions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentMemberId: "rmem_missing" }),
+      },
+    );
+    const missingMemberBody = await missingMemberResponse.json();
+
+    assert.equal(missingMemberResponse.status, 404);
+    assert.deepEqual(missingMemberBody, {
+      ok: false,
+      error: { code: "NOT_FOUND", message: "agent member not found" },
+    });
+
+    const agentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          participantId: "part_hsess_error_agent",
+          kind: "agent",
+          displayName: "Error Agent",
+        }),
+      },
+    );
+    const agentBody = (await agentResponse.json()) as { ok: true; member: { id: string } };
+    assert.equal(agentResponse.status, 201);
+
+    const badPolicyResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/harness-sessions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentMemberId: agentBody.member.id,
+          policy: { triggerMode: "always", maxConcurrentTurns: 1 },
+        }),
+      },
+    );
+    const badPolicyBody = await badPolicyResponse.json();
+
+    assert.equal(badPolicyResponse.status, 400);
+    assert.deepEqual(badPolicyBody, {
+      ok: false,
+      error: {
+        code: "BAD_REQUEST",
+        message: "policy.triggerMode must be one of mention_only, watch_room, manual",
+      },
     });
   } finally {
     container.close();

@@ -6,6 +6,7 @@ import { errorResponse, handleDaemonError } from "./api/errors.js";
 import { createEventsRoute } from "./api/events.js";
 import { createHealthRoute } from "./api/health.js";
 import { createHarnessRunsRoute } from "./api/harness-runs.js";
+import { createHarnessSessionsRoute } from "./api/harness-sessions.js";
 import { createRoomsRoute, type CreateRoomsRouteOptions } from "./api/rooms.js";
 import type { DaemonContainer } from "./container/index.js";
 
@@ -29,6 +30,7 @@ export function createDaemonApp(
   linka.route("/", createRoomsRoute(container, options.rooms));
   linka.route("/", createDocsRoute(container));
   linka.route("/", createHarnessRunsRoute(container));
+  linka.route("/", createHarnessSessionsRoute(container));
 
   return app;
 }
