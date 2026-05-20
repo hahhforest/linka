@@ -12,6 +12,7 @@ export const App = () => {
   const roomSource = useRoomStore((state) => state.source);
   const activeRoomId = useRoomStore((state) => state.activeRoomId);
   const applyRoomEvent = useRoomStore((state) => state.applyRoomEvent);
+  const refreshActiveRoom = useRoomStore((state) => state.refreshActiveRoom);
   const connectRealtime = useRealtimeStore((state) => state.connect);
   const disconnectRealtime = useRealtimeStore((state) => state.disconnect);
 
@@ -40,6 +41,18 @@ export const App = () => {
       connectRealtime({ onRoomEvent: applyRoomEvent });
     }
   }, [activeRoomId, applyRoomEvent, connectRealtime, daemonStatus, disconnectRealtime, roomSource]);
+
+  useEffect(() => {
+    if (daemonStatus !== "online" || roomSource !== "api" || !activeRoomId) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void refreshActiveRoom();
+    }, 3_000);
+
+    return () => window.clearInterval(intervalId);
+  }, [activeRoomId, daemonStatus, refreshActiveRoom, roomSource]);
 
   return <RoomWorkspace />;
 };

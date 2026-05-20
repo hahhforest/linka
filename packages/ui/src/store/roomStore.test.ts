@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 
-import { docId, unixMs, type Doc } from "@linka/shared";
+import {
+  docId,
+  harnessRunId,
+  runtimeEventId,
+  runtimeSessionId,
+  unixMs,
+  type Doc,
+  type HarnessRun,
+  type RuntimeEvent,
+} from "@linka/shared";
 
 import { demoRoom } from "../fixtures/demoRoom.js";
 import * as roomStoreModule from "./roomStore.js";
@@ -31,6 +40,8 @@ const resetStore = (): void => {
     membersByRoomId: {},
     messagesByRoomId: {},
     docsByRoomId: {},
+    harnessRunsByRoomId: {},
+    runtimeEventsByRunId: {},
     filesByRoomId: {},
     announcementsByRoomId: {},
     pinnedItemsByRoomId: {},
@@ -75,6 +86,8 @@ await withMockFetch(
     assert.equal(state.membersByRoomId[demoRoom.room.id]?.length, demoRoom.members.length);
     assert.equal(state.messagesByRoomId[demoRoom.room.id]?.length, demoRoom.messages.length);
     assert.deepEqual(state.docsByRoomId[demoRoom.room.id], []);
+    assert.deepEqual(state.harnessRunsByRoomId[demoRoom.room.id], []);
+    assert.deepEqual(state.runtimeEventsByRunId, {});
     assert.equal(state.filesByRoomId[demoRoom.room.id]?.length, demoRoom.files.length);
     assert.equal(
       state.announcementsByRoomId[demoRoom.room.id]?.length,
@@ -130,6 +143,35 @@ const createdApiDoc: Doc = {
   visibility: { scope: "room" },
 };
 
+const apiRuntime = {
+  id: runtimeSessionId("rsess_room_store_run"),
+  kind: "opencode" as const,
+  adapterSessionId: "room-store-session",
+};
+const apiRun: HarnessRun = {
+  id: harnessRunId("hrun_room_store_run"),
+  roomId: apiRoom.id,
+  targetMemberId: apiMembers[1].id,
+  status: "succeeded",
+  runtime: apiRuntime,
+  createdAt: unixMs(1_716_000_300_000),
+  updatedAt: unixMs(1_716_000_300_100),
+  startedAt: unixMs(1_716_000_300_010),
+  completedAt: unixMs(1_716_000_300_100),
+  summary: "room store run complete",
+};
+const apiRunEvent: RuntimeEvent = {
+  id: runtimeEventId("rtevt_room_store_output"),
+  runId: apiRun.id,
+  roomId: apiRoom.id,
+  targetMemberId: apiMembers[1].id,
+  sequence: 1,
+  type: "adapter.output",
+  createdAt: unixMs(1_716_000_300_090),
+  runtime: apiRuntime,
+  payload: { kind: "adapter_output", stream: "summary", text: "room store run complete" },
+};
+
 const initialApiMessage = demoRoom.messages.find(
   (message) => message.id === "rmsg_user_initial_request",
 );
@@ -158,10 +200,14 @@ const responses = [
   makeJsonResponse({ ok: true, members: apiMembers }),
   makeJsonResponse({ ok: true, messages: [initialApiMessage] }),
   makeJsonResponse({ ok: true, docs: apiDocs }),
+  makeJsonResponse({ ok: true, runs: [apiRun] }),
+  makeJsonResponse({ ok: true, events: [apiRunEvent] }),
   makeJsonResponse({ ok: true, message: composerApiMessage }, 201),
   makeJsonResponse({ ok: true, members: apiMembers }),
   makeJsonResponse({ ok: true, messages: [initialApiMessage, composerApiMessage] }),
   makeJsonResponse({ ok: true, docs: apiDocs }),
+  makeJsonResponse({ ok: true, runs: [apiRun] }),
+  makeJsonResponse({ ok: true, events: [apiRunEvent] }),
   makeJsonResponse({ ok: true, doc: createdApiDoc }, 201),
 ];
 
@@ -186,6 +232,8 @@ await withMockFetch(
     assert.deepEqual(state.membersByRoomId[apiRoom.id], apiMembers);
     assert.deepEqual(state.messagesByRoomId[apiRoom.id], [initialApiMessage]);
     assert.deepEqual(state.docsByRoomId[apiRoom.id], apiDocs);
+    assert.deepEqual(state.harnessRunsByRoomId[apiRoom.id], [apiRun]);
+    assert.deepEqual(state.runtimeEventsByRunId[apiRun.id], [apiRunEvent]);
     assert.equal(state.errorMessage, undefined);
 
     assert.deepEqual(
@@ -201,6 +249,8 @@ await withMockFetch(
         `GET /linka/rooms/${apiRoom.id}/members`,
         `GET /linka/rooms/${apiRoom.id}/messages?afterSequence=0&limit=500`,
         `GET /linka/rooms/${apiRoom.id}/docs`,
+        `GET /linka/rooms/${apiRoom.id}/harness-runs`,
+        `GET /linka/harness-runs/${apiRun.id}/events`,
       ],
     );
 
@@ -221,7 +271,7 @@ await withMockFetch(
     assert.deepEqual(state.docsByRoomId[apiRoom.id], apiDocs);
     assert.equal(state.isSending, false);
 
-    const composerPost = requests[10];
+    const composerPost = requests[12];
     assert.equal(composerPost?.input, `/linka/rooms/${apiRoom.id}/messages`);
     assert.equal(composerPost?.init.method, "POST");
     assert.deepEqual(JSON.parse(String(composerPost?.init.body)), {
@@ -231,12 +281,14 @@ await withMockFetch(
     });
 
     assert.deepEqual(
-      requests.slice(10).map((request) => `${request.init.method ?? "GET"} ${request.input}`),
+      requests.slice(12).map((request) => `${request.init.method ?? "GET"} ${request.input}`),
       [
         `POST /linka/rooms/${apiRoom.id}/messages`,
         `GET /linka/rooms/${apiRoom.id}/members`,
         `GET /linka/rooms/${apiRoom.id}/messages?afterSequence=0&limit=500`,
         `GET /linka/rooms/${apiRoom.id}/docs`,
+        `GET /linka/rooms/${apiRoom.id}/harness-runs`,
+        `GET /linka/harness-runs/${apiRun.id}/events`,
       ],
     );
     await useRoomStore.getState().createActiveRoomDoc({
@@ -249,7 +301,7 @@ await withMockFetch(
     assert.equal(state.errorMessage, undefined);
     assert.deepEqual(state.docsByRoomId[apiRoom.id], [...apiDocs, createdApiDoc]);
 
-    const docPost = requests[14];
+    const docPost = requests[18];
     assert.equal(docPost?.input, `/linka/rooms/${apiRoom.id}/docs`);
     assert.equal(docPost?.init.method, "POST");
     assert.deepEqual(JSON.parse(String(docPost?.init.body)), {
@@ -273,6 +325,8 @@ const resetStoreForRealtimeEvents = (): void => {
     membersByRoomId: { [demoRoom.room.id]: [demoRoom.members[0]] },
     messagesByRoomId: { [demoRoom.room.id]: [initialApiMessage] },
     docsByRoomId: { [demoRoom.room.id]: apiDocs },
+    harnessRunsByRoomId: { [demoRoom.room.id]: [apiRun] },
+    runtimeEventsByRunId: { [apiRun.id]: [apiRunEvent] },
     filesByRoomId: { [demoRoom.room.id]: [] },
     announcementsByRoomId: { [demoRoom.room.id]: [] },
     pinnedItemsByRoomId: { [demoRoom.room.id]: [] },
@@ -349,5 +403,6 @@ assert.equal(
   1,
 );
 assert.deepEqual(realtimeState.docsByRoomId[eventRoom.id], []);
+assert.deepEqual(realtimeState.harnessRunsByRoomId[eventRoom.id], []);
 
 console.log("room store realtime events: ok");

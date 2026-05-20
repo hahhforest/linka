@@ -4,6 +4,7 @@ import {
   unixMs,
   type Announcement,
   type Doc,
+  type HarnessRun,
   type PinnedItem,
   type Room,
   type RoomFile,
@@ -11,12 +12,14 @@ import {
   type RoomMember,
   type RoomMention,
   type RoomMessage,
+  type RuntimeEvent,
 } from "@linka/shared";
 
 import { demoRoom } from "../fixtures/demoRoom.js";
 import { parseComposerMentions } from "./composerMentions.js";
 import type { RealtimeRoomEvent } from "../services/realtime/index.js";
 import { createRoomDoc, listRoomDocs } from "../services/docsService.js";
+import { listHarnessRunEvents, listRoomHarnessRuns } from "../services/harnessRunsService.js";
 import {
   addRoomMember,
   createRoom,
@@ -33,6 +36,8 @@ export interface RoomWorkspaceSnapshot {
   readonly members: readonly RoomMember[];
   readonly messages: readonly RoomMessage[];
   readonly docs: readonly Doc[];
+  readonly harnessRuns: readonly HarnessRun[];
+  readonly runtimeEventsByRunId: Readonly<Record<string, readonly RuntimeEvent[]>>;
   readonly files: readonly RoomFile[];
   readonly announcements: readonly Announcement[];
   readonly pinnedItems: readonly PinnedItem[];
@@ -45,6 +50,8 @@ export interface RoomState {
   readonly membersByRoomId: Readonly<Record<string, readonly RoomMember[]>>;
   readonly messagesByRoomId: Readonly<Record<string, readonly RoomMessage[]>>;
   readonly docsByRoomId: Readonly<Record<string, readonly Doc[]>>;
+  readonly harnessRunsByRoomId: Readonly<Record<string, readonly HarnessRun[]>>;
+  readonly runtimeEventsByRunId: Readonly<Record<string, readonly RuntimeEvent[]>>;
   readonly filesByRoomId: Readonly<Record<string, readonly RoomFile[]>>;
   readonly announcementsByRoomId: Readonly<Record<string, readonly Announcement[]>>;
   readonly pinnedItemsByRoomId: Readonly<Record<string, readonly PinnedItem[]>>;
@@ -69,6 +76,7 @@ const fallbackRooms = [demoRoom.room];
 const fallbackMembersByRoomId = { [demoRoom.room.id]: demoRoom.members };
 const fallbackMessagesByRoomId = { [demoRoom.room.id]: demoRoom.messages };
 const fallbackDocsByRoomId = { [demoRoom.room.id]: [] };
+const fallbackHarnessRunsByRoomId = { [demoRoom.room.id]: [] };
 const fallbackFilesByRoomId = { [demoRoom.room.id]: demoRoom.files };
 const fallbackAnnouncementsByRoomId = { [demoRoom.room.id]: demoRoom.announcements };
 const fallbackPinnedItemsByRoomId = { [demoRoom.room.id]: demoRoom.pinnedItems };
@@ -81,6 +89,8 @@ const getActiveSnapshot = (
     | "membersByRoomId"
     | "messagesByRoomId"
     | "docsByRoomId"
+    | "harnessRunsByRoomId"
+    | "runtimeEventsByRunId"
     | "filesByRoomId"
     | "announcementsByRoomId"
     | "pinnedItemsByRoomId"
@@ -95,6 +105,8 @@ const getActiveSnapshot = (
     members: state.membersByRoomId[room.id] ?? [],
     messages: state.messagesByRoomId[room.id] ?? [],
     docs: state.docsByRoomId[room.id] ?? [],
+    harnessRuns: state.harnessRunsByRoomId[room.id] ?? [],
+    runtimeEventsByRunId: state.runtimeEventsByRunId,
     files: state.filesByRoomId[room.id] ?? [],
     announcements: state.announcementsByRoomId[room.id] ?? [],
     pinnedItems: state.pinnedItemsByRoomId[room.id] ?? [],
@@ -111,6 +123,8 @@ const loadFallback = (set: (state: Partial<RoomState>) => void, error?: unknown)
     membersByRoomId: fallbackMembersByRoomId,
     messagesByRoomId: fallbackMessagesByRoomId,
     docsByRoomId: fallbackDocsByRoomId,
+    harnessRunsByRoomId: fallbackHarnessRunsByRoomId,
+    runtimeEventsByRunId: {},
     filesByRoomId: fallbackFilesByRoomId,
     announcementsByRoomId: fallbackAnnouncementsByRoomId,
     pinnedItemsByRoomId: fallbackPinnedItemsByRoomId,
@@ -171,14 +185,22 @@ const loadApiRoomData = async (
   readonly members: readonly RoomMember[];
   readonly messages: readonly RoomMessage[];
   readonly docs: readonly Doc[];
+  readonly harnessRuns: readonly HarnessRun[];
+  readonly runtimeEventsByRunId: Readonly<Record<string, readonly RuntimeEvent[]>>;
 }> => {
-  const [members, messages, docs] = await Promise.all([
+  const [members, messages, docs, harnessRuns] = await Promise.all([
     listRoomMembers(room.id),
     listRoomMessages(room.id, { afterSequence: 0, limit: 500 }),
     listRoomDocs(room.id),
+    listRoomHarnessRuns(room.id),
   ]);
+  const runtimeEventsByRunId = Object.fromEntries(
+    await Promise.all(
+      harnessRuns.map(async (run) => [run.id, await listHarnessRunEvents(run.id)] as const),
+    ),
+  );
 
-  return { members, messages, docs };
+  return { members, messages, docs, harnessRuns, runtimeEventsByRunId };
 };
 
 const findHumanSender = (members: readonly RoomMember[]): RoomMember | undefined =>
@@ -245,6 +267,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   membersByRoomId: {},
   messagesByRoomId: {},
   docsByRoomId: {},
+  harnessRunsByRoomId: {},
+  runtimeEventsByRunId: {},
   filesByRoomId: {},
   announcementsByRoomId: {},
   pinnedItemsByRoomId: {},
@@ -266,7 +290,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       }
 
       const activeRoom = rooms[0] ?? demoRoom.room;
-      const { members, messages, docs } = await loadApiRoomData(activeRoom);
+      const { members, messages, docs, harnessRuns, runtimeEventsByRunId } =
+        await loadApiRoomData(activeRoom);
 
       set({
         rooms,
@@ -274,6 +299,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         membersByRoomId: { [activeRoom.id]: members },
         messagesByRoomId: { [activeRoom.id]: messages },
         docsByRoomId: { [activeRoom.id]: docs },
+        harnessRunsByRoomId: { [activeRoom.id]: harnessRuns },
+        runtimeEventsByRunId,
         filesByRoomId: { [activeRoom.id]: [] },
         announcementsByRoomId: { [activeRoom.id]: [] },
         pinnedItemsByRoomId: { [activeRoom.id]: [] },
@@ -301,11 +328,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     }
 
     try {
-      const { members, messages, docs } = await loadApiRoomData(room);
+      const { members, messages, docs, harnessRuns, runtimeEventsByRunId } =
+        await loadApiRoomData(room);
       set((current) => ({
         membersByRoomId: { ...current.membersByRoomId, [roomId]: members },
         messagesByRoomId: { ...current.messagesByRoomId, [roomId]: messages },
         docsByRoomId: { ...current.docsByRoomId, [roomId]: docs },
+        harnessRunsByRoomId: { ...current.harnessRunsByRoomId, [roomId]: harnessRuns },
+        runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
         errorMessage: undefined,
       }));
     } catch (error) {
@@ -322,11 +352,14 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     }
 
     try {
-      const { members, messages, docs } = await loadApiRoomData(room);
+      const { members, messages, docs, harnessRuns, runtimeEventsByRunId } =
+        await loadApiRoomData(room);
       set((current) => ({
         membersByRoomId: { ...current.membersByRoomId, [room.id]: members },
         messagesByRoomId: { ...current.messagesByRoomId, [room.id]: messages },
         docsByRoomId: { ...current.docsByRoomId, [room.id]: docs },
+        harnessRunsByRoomId: { ...current.harnessRunsByRoomId, [room.id]: harnessRuns },
+        runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
         errorMessage: undefined,
       }));
     } catch (error) {
@@ -361,6 +394,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           docsByRoomId: {
             ...current.docsByRoomId,
             [room.id]: current.docsByRoomId[room.id] ?? [],
+          },
+          harnessRunsByRoomId: {
+            ...current.harnessRunsByRoomId,
+            [room.id]: current.harnessRunsByRoomId[room.id] ?? [],
           },
           filesByRoomId: {
             ...current.filesByRoomId,
@@ -453,11 +490,15 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         text: trimmed,
         ...(mentions.length > 0 ? { mentions } : {}),
       });
-      const { members, messages, docs } = await loadApiRoomData(snapshot.room);
+      const { members, messages, docs, harnessRuns, runtimeEventsByRunId } = await loadApiRoomData(
+        snapshot.room,
+      );
       set((current) => ({
         membersByRoomId: { ...current.membersByRoomId, [snapshot.room.id]: members },
         messagesByRoomId: { ...current.messagesByRoomId, [snapshot.room.id]: messages },
         docsByRoomId: { ...current.docsByRoomId, [snapshot.room.id]: docs },
+        harnessRunsByRoomId: { ...current.harnessRunsByRoomId, [snapshot.room.id]: harnessRuns },
+        runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
         isSending: false,
         errorMessage: undefined,
       }));

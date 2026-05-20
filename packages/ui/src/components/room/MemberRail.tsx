@@ -5,20 +5,43 @@ import { useRoomStore } from "../../store/roomStore.js";
 const emptyMembers = [] as const;
 const emptyAnnouncements = [] as const;
 const emptyDocs = [] as const;
+const emptyRuns = [] as const;
+const emptyRuntimeEventsByRunId = {} as const;
 
 const memberAccent = (kind: string): string => (kind === "agent" ? "bg-linka" : "bg-signal");
 
-const formatDocUpdatedAt = (updatedAt: number): string =>
+const formatShortTime = (timestamp: number): string =>
   new Intl.DateTimeFormat("zh-CN", {
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(updatedAt));
+  }).format(new Date(timestamp));
 
 const getBodyFirstLine = (body: string): string | undefined =>
   body
     .split(/\r?\n/)
     .map((line) => line.trim())
     .find((line) => line.length > 0);
+
+const runStatusLabel = (status: string): string => {
+  if (status === "succeeded") return "completed";
+  return status;
+};
+
+const runStatusClass = (status: string): string => {
+  if (status === "running" || status === "queued") {
+    return "border-[#2f6f90]/30 bg-[#d8ecf5] text-[#275f7e]";
+  }
+
+  if (status === "succeeded") {
+    return "border-[#0b6b57]/30 bg-[#dceee8] text-linka";
+  }
+
+  if (status === "failed" || status === "cancelled") {
+    return "border-[#a34032]/30 bg-[#f3ddd9] text-caution";
+  }
+
+  return "border-line bg-paper text-muted";
+};
 
 export const MemberRail = () => {
   const [docTitle, setDocTitle] = useState("");
@@ -30,6 +53,12 @@ export const MemberRail = () => {
   const docs = useRoomStore((state) =>
     activeRoomId ? (state.docsByRoomId[activeRoomId] ?? emptyDocs) : emptyDocs,
   );
+  const runs = useRoomStore((state) =>
+    activeRoomId ? (state.harnessRunsByRoomId[activeRoomId] ?? emptyRuns) : emptyRuns,
+  );
+  const runtimeEventsByRunId = useRoomStore(
+    (state) => state.runtimeEventsByRunId ?? emptyRuntimeEventsByRunId,
+  );
   const announcements = useRoomStore((state) =>
     activeRoomId
       ? (state.announcementsByRoomId[activeRoomId] ?? emptyAnnouncements)
@@ -38,6 +67,7 @@ export const MemberRail = () => {
   const isCreatingDoc = useRoomStore((state) => state.isCreatingDoc);
   const createActiveRoomDoc = useRoomStore((state) => state.createActiveRoomDoc);
   const trimmedDocTitle = docTitle.trim();
+  const recentRuns = [...runs].sort((left, right) => right.createdAt - left.createdAt).slice(0, 4);
 
   return (
     <aside className="border-t border-line bg-[#f3efe6]/95 p-4 lg:border-l lg:border-t-0 lg:p-5">
@@ -71,6 +101,67 @@ export const MemberRail = () => {
             </article>
           ))}
         </div>
+      </section>
+
+      <section className="mt-6 border-t border-line pt-5">
+        <h2 className="text-sm font-semibold">运行状态</h2>
+        {recentRuns.length > 0 ? (
+          <div className="mt-3 grid gap-2">
+            {recentRuns.map((run) => {
+              const target = members.find((member) => member.id === run.targetMemberId);
+              const events = runtimeEventsByRunId[run.id] ?? [];
+              const latestEvent = events.at(-1);
+              const latestOutput = [...events]
+                .reverse()
+                .find(
+                  (event) =>
+                    event.type === "adapter.output" && event.payload.kind === "adapter_output",
+                );
+              const outputText =
+                latestOutput?.payload.kind === "adapter_output"
+                  ? latestOutput.payload.text
+                  : undefined;
+              const errorText = run.error;
+              const updatedAt = run.completedAt ?? latestEvent?.createdAt ?? run.updatedAt;
+
+              return (
+                <article key={run.id} className="rounded-lg border border-line bg-panel p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="truncate text-sm font-semibold">
+                        {target?.displayName ?? "Agent"}
+                      </h3>
+                      <time
+                        className="mt-1 block font-mono text-xs text-muted"
+                        dateTime={new Date(updatedAt).toISOString()}
+                      >
+                        {formatShortTime(updatedAt)}
+                      </time>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-md border px-2 py-1 font-mono text-[11px] ${runStatusClass(run.status)}`}
+                    >
+                      {runStatusLabel(run.status)}
+                    </span>
+                  </div>
+                  {errorText ? (
+                    <p className="mt-2 break-words text-sm leading-5 text-caution">{errorText}</p>
+                  ) : (outputText ?? run.summary) ? (
+                    <p className="mt-2 break-words text-sm leading-5 text-muted">
+                      {outputText ?? run.summary}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-sm text-muted">等待 runtime 事件</p>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="mt-3 rounded-lg border border-line bg-panel/70 p-3 text-sm text-muted">
+            暂无运行记录
+          </p>
+        )}
       </section>
 
       <section className="mt-6 border-t border-line pt-5">
@@ -149,7 +240,7 @@ export const MemberRail = () => {
                       className="mt-2 block font-mono text-xs text-muted"
                       dateTime={new Date(doc.updatedAt).toISOString()}
                     >
-                      更新于 {formatDocUpdatedAt(doc.updatedAt)}
+                      更新于 {formatShortTime(doc.updatedAt)}
                     </time>
                   )}
                 </article>
