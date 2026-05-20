@@ -3,6 +3,8 @@ import { useMemo, useState } from "react";
 import type { RoomDataSource } from "../../store/roomStore.js";
 import { useRoomStore } from "../../store/roomStore.js";
 
+const emptyMembers = [] as const;
+
 interface ComposerProps {
   readonly source: RoomDataSource;
 }
@@ -18,7 +20,7 @@ export const Composer = ({ source }: ComposerProps) => {
   const [localNote, setLocalNote] = useState<string | undefined>();
   const activeRoomId = useRoomStore((state) => state.activeRoomId);
   const members = useRoomStore((state) =>
-    activeRoomId ? (state.membersByRoomId[activeRoomId] ?? []) : [],
+    activeRoomId ? (state.membersByRoomId[activeRoomId] ?? emptyMembers) : emptyMembers,
   );
   const errorMessage = useRoomStore((state) => state.errorMessage);
   const isSending = useRoomStore((state) => state.isSending);
