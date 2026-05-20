@@ -194,6 +194,51 @@ withHarnessRunStore(({ store, room, target, doc }) => {
   assert.deepEqual(store.appendEvent(outputEvent), outputEvent);
   assert.deepEqual(store.listEvents(running.id), [outputEvent, startedEvent]);
   assert.deepEqual(store.listEvents(harnessRunId("hrun_missing")), []);
+
+  const succeededAt = unixMs(1_716_000_000_600);
+  const succeeded = store.updateRunStatus({
+    id: running.id,
+    status: "succeeded",
+    updatedAt: succeededAt,
+    completedAt: succeededAt,
+    runtime,
+    summary: "read doc",
+  });
+  assert.deepEqual(succeeded, {
+    ...running,
+    status: "succeeded",
+    updatedAt: succeededAt,
+    completedAt: succeededAt,
+    summary: "read doc",
+  });
+  assert.deepEqual(store.getRun(running.id), succeeded);
+
+  const failedAt = unixMs(1_716_000_000_700);
+  const failed = store.updateRunStatus({
+    id: queued.id,
+    status: "failed",
+    updatedAt: failedAt,
+    completedAt: failedAt,
+    error: "runtime unavailable",
+  });
+  assert.deepEqual(failed, {
+    ...queued,
+    status: "failed",
+    updatedAt: failedAt,
+    completedAt: failedAt,
+    error: "runtime unavailable",
+  });
+  assert.deepEqual(store.getRun(queued.id), failed);
+  assert.throws(
+    () =>
+      store.updateRunStatus({
+        id: harnessRunId("hrun_missing"),
+        status: "succeeded",
+        updatedAt: succeededAt,
+        completedAt: succeededAt,
+      }),
+    /harness run not found: hrun_missing/,
+  );
 });
 
 withHarnessRunStore(({ handle, store, room, target, doc }) => {

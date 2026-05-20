@@ -231,12 +231,14 @@ await withOpenCodeRunnerContext(async ({ container, room, members, agent, messag
   assert.match(run.id, /^hrun_/);
   assert.equal(run.roomId, room.id);
   assert.equal(run.targetMemberId, agent.id);
-  assert.equal(run.status, "running");
+  assert.equal(run.status, "succeeded");
   assert.equal(run.createdAt, now);
   assert.equal(run.updatedAt, now);
   assert.equal(run.startedAt, now);
+  assert.equal(run.completedAt, now);
   assert.equal(run.triggerMessageId, message.id);
   assert.equal(run.docIds, undefined);
+  assert.deepEqual(run.runtime, runtime);
 
   assert.equal(receivedRun?.id, run.id);
   assert.equal(receivedProjection?.request.roomId, room.id);
@@ -355,6 +357,12 @@ await withOpenCodeRunnerContext(async ({ container, room, members, agent, messag
   } finally {
     subscription.unsubscribe();
   }
+
+  const runs = container.harnessRunStore.listRunsByRoom(room.id);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0]?.status, "succeeded");
+  assert.equal(runs[0]?.completedAt, now);
+  assert.equal(runs[0]?.summary, "final OpenCode answer");
 
   const messages = container.messageStore.listMessages(room.id);
   assert.equal(messages.length, 2);

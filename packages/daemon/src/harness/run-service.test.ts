@@ -232,15 +232,19 @@ await withRunServiceContext(async ({ container, room, agent, message, doc, comme
   assert.match(result.run.id, /^hrun_/);
   assert.equal(result.run.roomId, room.id);
   assert.equal(result.run.targetMemberId, agent.id);
-  assert.equal(result.run.status, "running");
+  assert.equal(result.run.status, "succeeded");
   assert.equal(result.run.createdAt, now);
   assert.equal(result.run.updatedAt, now);
   assert.equal(result.run.startedAt, now);
+  assert.equal(result.run.completedAt, now);
   assert.equal(result.run.triggerMessageId, message.id);
   assert.deepEqual(result.run.docIds, [doc.id]);
+  assert.deepEqual(result.run.runtime, runtime);
+  assert.equal(result.run.summary, "read docs and room context");
   assert.deepEqual(container.harnessRunStore.getRun(result.run.id), result.run);
 
   assert.equal(receivedRun?.id, result.run.id);
+  assert.equal(receivedRun?.status, "running");
   assert.equal(receivedProjection?.request.trigger.type, "member_mentioned");
   assert.deepEqual(
     receivedProjection?.messages.map((projectedMessage) => projectedMessage.id),
@@ -319,8 +323,60 @@ await withRunServiceContext(async ({ container, room, agent }) => {
     now: () => now,
   });
 
+  assert.equal(result.run.status, "failed");
+  assert.equal(result.run.completedAt, now);
+  assert.equal(result.run.error, "runtime event run mismatch");
   assert.equal(result.events.length, 1);
   assert.equal(result.events[0]?.type, "run.failed");
+  assert.deepEqual(container.harnessRunStore.getRun(result.run.id), result.run);
+  assert.deepEqual(container.harnessRunStore.listEvents(result.run.id), result.events);
+});
+
+await withRunServiceContext(async ({ container, room, agent }) => {
+  const adapter = {
+    getCapabilities: () => capabilities,
+    startRun: async (input) => ({
+      events: runtimeEvents([
+        {
+          id: runtimeEventId("rtevt_service_error_started"),
+          runId: input.run.id,
+          roomId: input.run.roomId,
+          targetMemberId: input.run.targetMemberId,
+          sequence: 1,
+          type: "run.started",
+          createdAt: now,
+          payload: { kind: "run_status", status: "running" },
+        },
+        {
+          id: runtimeEventId("rtevt_service_adapter_error"),
+          runId: input.run.id,
+          roomId: input.run.roomId,
+          targetMemberId: input.run.targetMemberId,
+          sequence: 2,
+          type: "adapter.error",
+          createdAt: now,
+          payload: { kind: "adapter_error", message: "adapter reported failure" },
+        },
+      ]),
+    }),
+  } satisfies RuntimeAdapter;
+
+  const result = await startHarnessRun({
+    container,
+    adapter,
+    roomId: room.id,
+    targetMemberId: agent.id,
+    now: () => now,
+  });
+
+  assert.equal(result.run.status, "failed");
+  assert.equal(result.run.completedAt, now);
+  assert.equal(result.run.error, "adapter reported failure");
+  assert.deepEqual(
+    result.events.map((event) => event.type),
+    ["run.started", "adapter.error"],
+  );
+  assert.deepEqual(container.harnessRunStore.getRun(result.run.id), result.run);
   assert.deepEqual(container.harnessRunStore.listEvents(result.run.id), result.events);
 });
 
@@ -340,7 +396,9 @@ await withRunServiceContext(async ({ container, room, agent }) => {
     now: () => now,
   });
 
-  assert.equal(result.run.status, "running");
+  assert.equal(result.run.status, "failed");
+  assert.equal(result.run.completedAt, now);
+  assert.equal(result.run.error, "runtime unavailable");
   assert.deepEqual(container.harnessRunStore.getRun(result.run.id), result.run);
   assert.equal(result.events.length, 1);
 

@@ -135,6 +135,75 @@ const createFailedRuntimeEvent = (
   },
 });
 
+const selectLastAdapterOutputText = (events: readonly RuntimeEvent[]): string | undefined => {
+  let outputText: string | undefined;
+
+  for (const event of events) {
+    if (event.type !== "adapter.output" || event.payload.kind !== "adapter_output") {
+      continue;
+    }
+
+    const { text } = event.payload;
+    if (typeof text === "string" && text.trim().length > 0) {
+      outputText = text;
+    }
+  }
+
+  return outputText;
+};
+
+const selectFinalRuntime = (
+  run: HarnessRun,
+  events: readonly RuntimeEvent[],
+): RuntimeSessionRef | undefined => {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const runtime = events[index]?.runtime;
+    if (runtime !== undefined) {
+      return runtime;
+    }
+  }
+
+  return run.runtime;
+};
+
+const isFailedRuntimeEvent = (event: RuntimeEvent): boolean =>
+  event.type === "run.failed" ||
+  event.type === "adapter.error" ||
+  (event.payload.kind === "run_status" && event.payload.status === "failed");
+
+const getRuntimeEventErrorMessage = (event: RuntimeEvent): string => {
+  if (event.payload.kind === "adapter_error") {
+    return event.payload.message;
+  }
+
+  if (event.payload.kind === "run_status" && event.payload.message) {
+    return event.payload.message;
+  }
+
+  return event.type;
+};
+
+const completeHarnessRun = (
+  store: HarnessRunStore,
+  run: HarnessRun,
+  events: readonly RuntimeEvent[],
+  completedAt: UnixMs,
+): HarnessRun => {
+  const failedEvent = events.find(isFailedRuntimeEvent);
+  const runtime = selectFinalRuntime(run, events);
+  const summary = selectLastAdapterOutputText(events);
+
+  return store.updateRunStatus({
+    id: run.id,
+    status: failedEvent === undefined ? "succeeded" : "failed",
+    updatedAt: completedAt,
+    completedAt,
+    ...(runtime === undefined ? {} : { runtime }),
+    ...(summary === undefined ? {} : { summary }),
+    ...(failedEvent === undefined ? {} : { error: getRuntimeEventErrorMessage(failedEvent) }),
+  });
+};
+
 export const startHarnessRun = async ({
   container,
   adapter,
@@ -216,5 +285,7 @@ export const startHarnessRun = async ({
     events.push(appendRuntimeEvent(container.harnessRunStore, failedEvent));
   }
 
-  return { run, events };
+  const finalRun = completeHarnessRun(container.harnessRunStore, run, events, readNow(now));
+
+  return { run: finalRun, events };
 };

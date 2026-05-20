@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { resolvePort } from "@linka/config";
-import { roomId } from "@linka/shared";
+import { roomId, roomMemberId } from "@linka/shared";
 
 import type { EventStore } from "../store/event-store.js";
 import type { DocStore } from "../store/doc-store.js";
@@ -134,6 +134,18 @@ test("createDaemonContainer uses provided stores without opening SQLite", () => 
     createRuntimeSession: (session) => session,
     getRuntimeSession: () => undefined,
     createRun: (run) => run,
+    updateRunStatus: (update) => ({
+      id: update.id,
+      roomId: roomId("room_empty"),
+      targetMemberId: roomMemberId("rmem_empty"),
+      status: update.status,
+      createdAt: update.updatedAt,
+      updatedAt: update.updatedAt,
+      ...(update.completedAt === undefined ? {} : { completedAt: update.completedAt }),
+      ...(update.runtime === undefined ? {} : { runtime: update.runtime }),
+      ...(update.summary === undefined ? {} : { summary: update.summary }),
+      ...(update.error === undefined ? {} : { error: update.error }),
+    }),
     getRun: () => undefined,
     listRunsByRoom: () => [],
     appendEvent: (event) => event,

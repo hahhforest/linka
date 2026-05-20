@@ -26,10 +26,21 @@ import {
 import type { DatabaseHandle } from "../db/connection.js";
 import { DaemonDatabaseError } from "./event-store.js";
 
+export interface UpdateHarnessRunStatusInput {
+  readonly id: HarnessRun["id"];
+  readonly status: HarnessRunStatus;
+  readonly updatedAt: HarnessRun["updatedAt"];
+  readonly completedAt?: HarnessRun["completedAt"];
+  readonly runtime?: RuntimeSessionRef;
+  readonly summary?: HarnessRun["summary"];
+  readonly error?: HarnessRun["error"];
+}
+
 export interface HarnessRunStore {
   createRuntimeSession(session: RuntimeSessionRef): RuntimeSessionRef;
   getRuntimeSession(id: RuntimeSessionRef["id"]): RuntimeSessionRef | undefined;
   createRun(run: HarnessRun): HarnessRun;
+  updateRunStatus(update: UpdateHarnessRunStatusInput): HarnessRun;
   getRun(id: HarnessRun["id"]): HarnessRun | undefined;
   listRunsByRoom(roomId: RoomId): readonly HarnessRun[];
   appendEvent(event: RuntimeEvent): RuntimeEvent;
@@ -343,6 +354,17 @@ export const createHarnessRunStore = (handle: DatabaseHandle): HarnessRunStore =
       @error
     )
   `);
+  const updateRunStatus = database.prepare(`
+    UPDATE harness_runs
+    SET
+      status = @status,
+      runtime_session_id = @runtimeSessionId,
+      updated_at = @updatedAt,
+      completed_at = @completedAt,
+      summary = @summary,
+      error = @error
+    WHERE harness_run_id = @id
+  `);
 
   const eventColumns = `
     events.*,
@@ -439,6 +461,40 @@ export const createHarnessRunStore = (handle: DatabaseHandle): HarnessRunStore =
     getRun: (id) => {
       const row = selectRun.get(id) as HarnessRunRow | undefined;
       return row ? toHarnessRun(row) : undefined;
+    },
+
+    updateRunStatus: (update) => {
+      if (
+        update.runtime !== undefined &&
+        selectRuntimeSession.get(update.runtime.id) === undefined
+      ) {
+        insertRuntimeSession.run({
+          id: update.runtime.id,
+          kind: update.runtime.kind,
+          adapterSessionId: update.runtime.adapterSessionId ?? null,
+          label: update.runtime.label ?? null,
+        });
+      }
+
+      const result = updateRunStatus.run({
+        id: update.id,
+        status: update.status,
+        runtimeSessionId: update.runtime?.id ?? null,
+        updatedAt: update.updatedAt,
+        completedAt: update.completedAt ?? null,
+        summary: update.summary ?? null,
+        error: update.error ?? null,
+      });
+      if (result.changes !== 1) {
+        throw new Error("harness run not found: " + update.id);
+      }
+
+      const row = selectRun.get(update.id) as HarnessRunRow | undefined;
+      if (!row) {
+        throw new Error("failed to read updated harness run");
+      }
+
+      return toHarnessRun(row);
     },
 
     listRunsByRoom: (id) => {
