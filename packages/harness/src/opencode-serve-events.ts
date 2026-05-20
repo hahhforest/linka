@@ -24,6 +24,8 @@ export type OpenCodeServeTerminalState = "idle" | "error";
 const EVENT_ID_RUN_PART_LIMIT = 80;
 const EVENT_ID_SEQUENCE_PART_LIMIT = 24;
 
+const MESSAGE_OUTPUT_TYPES = new Set(["message.part.delta", "message.part.updated"]);
+
 const toEventIdPart = (value: string, maxLength: number): string =>
   value.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, maxLength);
 
@@ -59,12 +61,30 @@ const getNestedRecord = (
   return undefined;
 };
 
-const getProperties = (event: OpenCodeServeEvent): Record<string, unknown> | undefined =>
-  getNestedRecord(event, ["properties"]);
+const getRecordProperties = (
+  record: Record<string, unknown>,
+): Record<string, unknown> | undefined => getNestedRecord(record, ["properties"]);
+
+const getPayload = (event: OpenCodeServeEvent): Record<string, unknown> | undefined =>
+  getNestedRecord(event, ["payload"]);
+
+const appendRecord = (
+  records: Record<string, unknown>[],
+  record: Record<string, unknown> | undefined,
+) => {
+  if (record !== undefined && !records.includes(record)) records.push(record);
+};
 
 const getEventRecords = (event: OpenCodeServeEvent): readonly Record<string, unknown>[] => {
-  const properties = getProperties(event);
-  return properties === undefined ? [event] : [event, properties];
+  const records: Record<string, unknown>[] = [];
+  const payload = getPayload(event);
+
+  appendRecord(records, payload);
+  appendRecord(records, payload === undefined ? undefined : getRecordProperties(payload));
+  appendRecord(records, event);
+  appendRecord(records, getRecordProperties(event));
+
+  return records;
 };
 
 const getStringFieldFromEvent = (
@@ -91,13 +111,15 @@ const getNestedRecordFromEvent = (
   return undefined;
 };
 
+const getOpenCodeServeEventType = (event: OpenCodeServeEvent): string | undefined =>
+  getStringFieldFromEvent(event, ["type", "event"]);
+
 export const getOpenCodeServeSessionId = (event: OpenCodeServeEvent): string | undefined => {
   const directSessionId = getStringFieldFromEvent(event, [
     "sessionID",
     "sessionId",
     "session_id",
     "session",
-    "id",
   ]);
   if (directSessionId !== undefined) return directSessionId;
 
@@ -112,14 +134,39 @@ export const isOpenCodeServeEventForSession = (
   adapterSessionId: string,
 ): boolean => getOpenCodeServeSessionId(event) === adapterSessionId;
 
+const getRecordStatus = (record: Record<string, unknown>): string | undefined => {
+  for (const key of ["status", "state"] as const) {
+    const field = record[key];
+
+    if (typeof field === "string") return field;
+
+    if (isRecord(field)) {
+      const status = getStringField(field, ["type", "status", "state", "name", "value"]);
+      if (status !== undefined) return status;
+    }
+  }
+
+  return undefined;
+};
+
+const getStatusFromEvent = (event: OpenCodeServeEvent): string | undefined => {
+  for (const record of getEventRecords(event)) {
+    const status = getRecordStatus(record);
+    if (status !== undefined) return status;
+  }
+
+  return undefined;
+};
+
 export const getOpenCodeServeTerminalState = (
   event: OpenCodeServeEvent,
 ): OpenCodeServeTerminalState | undefined => {
-  const type = getStringFieldFromEvent(event, ["type", "event"]);
-  const status = getStringFieldFromEvent(event, ["status", "state"]);
+  const type = getOpenCodeServeEventType(event)?.toLowerCase();
+  const status = getStatusFromEvent(event)?.toLowerCase();
 
   if (type === "session.idle" || status === "idle") return "idle";
-  if (type === "session.error" || status === "error") return "error";
+  if (type === "session.error" || type === "session.failed") return "error";
+  if (status === "error" || status === "failed" || status === "failure") return "error";
 
   return undefined;
 };
@@ -135,13 +182,14 @@ const getPartText = (part: Record<string, unknown>): string | undefined => {
 };
 
 export const getOpenCodeServeOutputText = (event: OpenCodeServeEvent): string | undefined => {
-  const type = getStringFieldFromEvent(event, ["type", "event"]);
+  const type = getOpenCodeServeEventType(event);
+  const isMessageOutputType = type !== undefined && MESSAGE_OUTPUT_TYPES.has(type);
   const directText = getStringFieldFromEvent(event, ["text", "delta", "content"]);
 
-  if (type === "message.part.delta" && directText !== undefined) return directText;
+  if (isMessageOutputType && directText !== undefined) return directText;
 
   const delta = getNestedRecordFromEvent(event, ["delta"]);
-  if (type === "message.part.delta" && delta !== undefined) {
+  if (isMessageOutputType && delta !== undefined) {
     const deltaText = getStringField(delta, ["text", "content"]);
     if (deltaText !== undefined) return deltaText;
   }
@@ -152,7 +200,7 @@ export const getOpenCodeServeOutputText = (event: OpenCodeServeEvent): string | 
   const partType = getStringField(part, ["type"]);
   const partText = getPartText(part);
 
-  if (type === "message.part.delta" && partText !== undefined) return partText;
+  if (isMessageOutputType && partText !== undefined) return partText;
   if (partType === "text" && partText !== undefined) return partText;
 
   return undefined;
@@ -164,21 +212,25 @@ const getErrorMessage = (event: OpenCodeServeEvent): string => {
 
   const error = getNestedRecordFromEvent(event, ["error"]);
   if (error !== undefined) {
-    const nestedMessage = getStringField(error, ["message", "name", "code"]);
+    const nestedMessage = getStringField(error, ["message", "name", "code", "text"]);
     if (nestedMessage !== undefined && nestedMessage.trim().length > 0) return nestedMessage;
+  }
+
+  const status = getNestedRecordFromEvent(event, ["status", "state"]);
+  if (status !== undefined) {
+    const statusMessage = getStringField(status, ["message", "error", "reason", "code"]);
+    if (statusMessage !== undefined && statusMessage.trim().length > 0) return statusMessage;
   }
 
   return "OpenCode session reported an error.";
 };
 
-export const toOpenCodeServeRuntimeEvent = (
-  input: ToOpenCodeServeRuntimeEventInput,
-): RuntimeEvent => {
-  const { event, run, sequence } = input;
+const createRuntimeBase = (input: ToOpenCodeServeRuntimeEventInput) => {
+  const { run, sequence } = input;
   const runtime = input.runtime ?? run.runtime;
   const createdAt = input.createdAt ?? unixMs(Date.now());
-  const terminalState = getOpenCodeServeTerminalState(event);
-  const runtimeBase = {
+
+  return {
     id: createOpenCodeServeRuntimeEventId(run, sequence),
     runId: run.id,
     roomId: run.roomId,
@@ -187,6 +239,27 @@ export const toOpenCodeServeRuntimeEvent = (
     createdAt,
     ...(runtime ? { runtime } : {}),
   };
+};
+
+const createOpenCodeServeOutputRuntimeEvent = (
+  input: ToOpenCodeServeRuntimeEventInput,
+  text: string,
+): RuntimeEvent => ({
+  ...createRuntimeBase(input),
+  type: "adapter.output",
+  payload: {
+    kind: "adapter_output",
+    stream: "summary",
+    text,
+    data: input.event,
+  },
+});
+
+const createOpenCodeServeTerminalRuntimeEvent = (
+  input: ToOpenCodeServeRuntimeEventInput,
+  terminalState: OpenCodeServeTerminalState,
+): RuntimeEvent => {
+  const runtimeBase = createRuntimeBase(input);
 
   if (terminalState === "idle") {
     return {
@@ -195,48 +268,65 @@ export const toOpenCodeServeRuntimeEvent = (
       payload: {
         kind: "run_status",
         status: "succeeded",
-        details: event,
-      },
-    };
-  }
-
-  if (terminalState === "error") {
-    return {
-      ...runtimeBase,
-      type: "run.failed",
-      payload: {
-        kind: "run_status",
-        status: "failed",
-        message: getErrorMessage(event),
-        details: event,
-      },
-    };
-  }
-
-  const text = getOpenCodeServeOutputText(event);
-
-  if (text !== undefined && text.trim().length > 0) {
-    return {
-      ...runtimeBase,
-      type: "adapter.output",
-      payload: {
-        kind: "adapter_output",
-        stream: "summary",
-        text,
-        data: event,
+        details: input.event,
       },
     };
   }
 
   return {
     ...runtimeBase,
-    type: "run.updated",
+    type: "run.failed",
     payload: {
-      kind: "adapter_metadata",
-      data: event,
+      kind: "run_status",
+      status: "failed",
+      message: getErrorMessage(input.event),
+      details: input.event,
     },
   };
 };
+
+const createOpenCodeServeMetadataRuntimeEvent = (
+  input: ToOpenCodeServeRuntimeEventInput,
+): RuntimeEvent => ({
+  ...createRuntimeBase(input),
+  type: "run.updated",
+  payload: {
+    kind: "adapter_metadata",
+    data: input.event,
+  },
+});
+
+export const toOpenCodeServeRuntimeEvents = (
+  input: ToOpenCodeServeRuntimeEventInput,
+): readonly RuntimeEvent[] => {
+  const terminalState = getOpenCodeServeTerminalState(input.event);
+  const text = getOpenCodeServeOutputText(input.event);
+  const events: RuntimeEvent[] = [];
+
+  if (text !== undefined && text.trim().length > 0) {
+    events.push(createOpenCodeServeOutputRuntimeEvent(input, text));
+  }
+
+  if (terminalState !== undefined) {
+    events.push(
+      createOpenCodeServeTerminalRuntimeEvent(
+        { ...input, sequence: input.sequence + events.length },
+        terminalState,
+      ),
+    );
+  }
+
+  if (events.length === 0) {
+    events.push(createOpenCodeServeMetadataRuntimeEvent(input));
+  }
+
+  return events;
+};
+
+export const toOpenCodeServeRuntimeEvent = (
+  input: ToOpenCodeServeRuntimeEventInput,
+): RuntimeEvent =>
+  toOpenCodeServeRuntimeEvents(input)[0] ?? createOpenCodeServeMetadataRuntimeEvent(input);
 
 export const isOpenCodeServeTerminalRuntimeEvent = (event: RuntimeEvent): boolean => {
   const type: RuntimeEventType = event.type;

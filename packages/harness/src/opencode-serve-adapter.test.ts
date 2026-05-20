@@ -257,6 +257,43 @@ assert.ok(isRecord(promptCall.body));
 assert.ok(Array.isArray(promptCall.body.parts));
 assert.match(JSON.stringify(promptCall.body.parts), /Please inspect the repo/);
 
+const wrappedStreamFetch = createFetch(["oc-session-wrapped"]);
+const wrappedStreamProcessStarts: OpenCodeServeProcessRunnerInput[] = [];
+const wrappedStreamAdapter = createAdapter({
+  fetchImpl: wrappedStreamFetch.fetchImpl,
+  processStarts: wrappedStreamProcessStarts,
+  events: [
+    {
+      directory: "/tmp/linka",
+      project: "linka",
+      payload: {
+        id: "evt_wrapped_stream",
+        type: "message.part.delta",
+        properties: {
+          sessionID: "oc-session-wrapped",
+          part: { text: "Wrapped stream output." },
+          status: { type: "idle" },
+        },
+      },
+    },
+  ],
+});
+const wrappedStreamEvents = await collectRuntimeEvents(
+  (await wrappedStreamAdapter.startRun({ run: createRun("wrapped"), projection })).events,
+);
+assert.equal(wrappedStreamEvents.length, 3);
+assert.equal(wrappedStreamEvents[0]?.type, "runtime.session.started");
+assert.equal(wrappedStreamEvents[1]?.type, "adapter.output");
+assert.equal(wrappedStreamEvents[1]?.sequence, 2);
+const wrappedStreamOutputPayload = wrappedStreamEvents[1]?.payload;
+assert.equal(wrappedStreamOutputPayload?.kind, "adapter_output");
+if (wrappedStreamOutputPayload?.kind !== "adapter_output") {
+  throw new Error("Expected wrapped adapter output.");
+}
+assert.equal(wrappedStreamOutputPayload.text, "Wrapped stream output.");
+assert.equal(wrappedStreamEvents[2]?.type, "run.completed");
+assert.equal(wrappedStreamEvents[2]?.sequence, 3);
+
 const configuredFetch = createFetch(["oc-session-configured"]);
 const configuredProcessStarts: OpenCodeServeProcessRunnerInput[] = [];
 const configuredAdapter = new OpenCodeServeRuntimeAdapter({

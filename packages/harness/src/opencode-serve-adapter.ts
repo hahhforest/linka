@@ -23,7 +23,7 @@ import {
   isOpenCodeServeEventForSession,
   isOpenCodeServeTerminalRuntimeEvent,
   parseOpenCodeServeSseFrame,
-  toOpenCodeServeRuntimeEvent,
+  toOpenCodeServeRuntimeEvents,
   type OpenCodeServeEvent,
 } from "./opencode-serve-events.js";
 
@@ -90,6 +90,7 @@ const DEFAULT_PORT = 4096;
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_HEALTH_ATTEMPTS = 20;
 const DEFAULT_HEALTH_RETRY_DELAY_MS = 250;
+const EVENT_STREAM_READY_TIMEOUT_MS = 1000;
 const EVENT_ID_SEQUENCE_STARTED = 1;
 const RUNTIME_SESSION_ID_SESSION_PART_LIMIT = 112;
 
@@ -361,14 +362,15 @@ export class OpenCodeServeRuntimeAdapter implements RuntimeAdapter {
 
     this.activeRuns.set(String(input.run.id), activeRun);
 
-    await this.postPrompt(
-      adapterSessionId,
-      buildOpenCodeServePromptParts(input.projection),
-      controller.signal,
-    );
-
     return {
-      events: this.runEvents(input.run, runtime, adapterSessionId, sessionCreated, activeRun),
+      events: this.runEvents(
+        input.run,
+        runtime,
+        adapterSessionId,
+        buildOpenCodeServePromptParts(input.projection),
+        sessionCreated,
+        activeRun,
+      ),
       cancel: async () => {
         await this.abortSession(adapterSessionId);
         controller.abort();
@@ -485,6 +487,7 @@ export class OpenCodeServeRuntimeAdapter implements RuntimeAdapter {
     run: HarnessRun,
     runtime: RuntimeSessionRef,
     adapterSessionId: string,
+    parts: readonly OpenCodeServePromptPart[],
     sessionCreated: boolean,
     activeRun: ActiveRun,
   ): AsyncIterable<RuntimeEvent> {
@@ -496,25 +499,72 @@ export class OpenCodeServeRuntimeAdapter implements RuntimeAdapter {
         yield this.createSessionStartedEvent(run, runtime, sequence);
       }
 
-      for await (const event of this.eventStreamFactory({
+      const eventIterator = this.eventStreamFactory({
         url: this.url("/global/event"),
         fetchImpl: this.fetchImpl,
         signal: activeRun.controller.signal,
-      })) {
-        if (!isOpenCodeServeEventForSession(event, adapterSessionId)) continue;
+      })[Symbol.asyncIterator]();
+      let nextEvent = eventIterator.next();
 
+      const createRuntimeEventsForServeEvent = (
+        event: OpenCodeServeEvent,
+      ): readonly RuntimeEvent[] => {
         sequence += 1;
-        const runtimeEvent = toOpenCodeServeRuntimeEvent({
+        return toOpenCodeServeRuntimeEvents({
           event,
           run,
           runtime,
           sequence,
           createdAt: this.now(),
         });
+      };
 
-        yield runtimeEvent;
+      try {
+        const firstEvent = await Promise.race([
+          nextEvent,
+          delay(EVENT_STREAM_READY_TIMEOUT_MS).then(() => undefined),
+        ]);
+        const queuedEvent = firstEvent?.done === false ? firstEvent.value : undefined;
 
-        if (isOpenCodeServeTerminalRuntimeEvent(runtimeEvent)) break;
+        if (firstEvent !== undefined) {
+          nextEvent = eventIterator.next();
+        }
+
+        await this.postPrompt(adapterSessionId, parts, activeRun.controller.signal);
+
+        if (
+          queuedEvent !== undefined &&
+          isOpenCodeServeEventForSession(queuedEvent, adapterSessionId)
+        ) {
+          const runtimeEvents = createRuntimeEventsForServeEvent(queuedEvent);
+          for (const runtimeEvent of runtimeEvents) {
+            yield runtimeEvent;
+            sequence = runtimeEvent.sequence;
+            if (isOpenCodeServeTerminalRuntimeEvent(runtimeEvent)) return;
+          }
+        }
+
+        while (true) {
+          const next = await nextEvent;
+          if (next.done === true) break;
+
+          nextEvent = eventIterator.next();
+          const event = next.value;
+          if (!isOpenCodeServeEventForSession(event, adapterSessionId)) continue;
+
+          const runtimeEvents = createRuntimeEventsForServeEvent(event);
+
+          let reachedTerminalEvent = false;
+          for (const runtimeEvent of runtimeEvents) {
+            yield runtimeEvent;
+            sequence = runtimeEvent.sequence;
+            if (isOpenCodeServeTerminalRuntimeEvent(runtimeEvent)) reachedTerminalEvent = true;
+          }
+
+          if (reachedTerminalEvent) break;
+        }
+      } finally {
+        await eventIterator.return?.();
       }
     } catch (error) {
       if (!activeRun.controller.signal.aborted) throw error;

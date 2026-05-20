@@ -14,6 +14,7 @@ import {
   getOpenCodeServeSessionId,
   parseOpenCodeServeSseFrame,
   toOpenCodeServeRuntimeEvent,
+  toOpenCodeServeRuntimeEvents,
 } from "./index.js";
 
 const now = unixMs(1_716_000_000_000);
@@ -244,6 +245,147 @@ assert.deepEqual(propertiesSessionFailedEvent.payload, {
   status: "failed",
   message: "nested properties boom",
   details: propertiesSessionErrorEvent,
+});
+
+const wrappedDeltaEvent = parseOpenCodeServeSseFrame(
+  'data: {"directory":"/tmp/linka","project":"linka","payload":{"id":"evt_wrapped_delta","type":"message.part.delta","properties":{"sessionID":"oc-session-events","part":{"text":"wrapped delta text"},"status":{"type":"idle"}}}}\n\n',
+);
+assert.deepEqual(wrappedDeltaEvent, {
+  directory: "/tmp/linka",
+  project: "linka",
+  payload: {
+    id: "evt_wrapped_delta",
+    type: "message.part.delta",
+    properties: {
+      sessionID: "oc-session-events",
+      part: { text: "wrapped delta text" },
+      status: { type: "idle" },
+    },
+  },
+});
+assert.equal(getOpenCodeServeSessionId(wrappedDeltaEvent ?? {}), "oc-session-events");
+const wrappedDeltaRuntimeEvents = toOpenCodeServeRuntimeEvents({
+  event: wrappedDeltaEvent ?? {},
+  run,
+  runtime,
+  sequence: 13,
+  createdAt: now,
+});
+assert.equal(wrappedDeltaRuntimeEvents.length, 2);
+assert.equal(wrappedDeltaRuntimeEvents[0]?.type, "adapter.output");
+assert.equal(wrappedDeltaRuntimeEvents[0]?.sequence, 13);
+assert.deepEqual(wrappedDeltaRuntimeEvents[0]?.payload, {
+  kind: "adapter_output",
+  stream: "summary",
+  text: "wrapped delta text",
+  data: wrappedDeltaEvent,
+});
+assert.equal(wrappedDeltaRuntimeEvents[1]?.type, "run.completed");
+assert.equal(wrappedDeltaRuntimeEvents[1]?.sequence, 14);
+
+const wrappedUpdatedEvent = {
+  directory: "/tmp/linka",
+  project: "linka",
+  payload: {
+    id: "evt_wrapped_updated",
+    type: "message.part.updated",
+    properties: {
+      sessionId: "oc-session-events",
+      part: { text: "wrapped updated text" },
+    },
+  },
+};
+assert.equal(getOpenCodeServeSessionId(wrappedUpdatedEvent), "oc-session-events");
+const wrappedUpdatedRuntimeEvent = toOpenCodeServeRuntimeEvent({
+  event: wrappedUpdatedEvent,
+  run,
+  runtime,
+  sequence: 15,
+  createdAt: now,
+});
+assert.equal(wrappedUpdatedRuntimeEvent.type, "adapter.output");
+assert.deepEqual(wrappedUpdatedRuntimeEvent.payload, {
+  kind: "adapter_output",
+  stream: "summary",
+  text: "wrapped updated text",
+  data: wrappedUpdatedEvent,
+});
+
+const wrappedSessionIdleEvent = {
+  directory: "/tmp/linka",
+  project: "linka",
+  payload: {
+    id: "evt_wrapped_idle",
+    type: "session.idle",
+    properties: {
+      session_id: "oc-session-events",
+      status: { type: "idle" },
+    },
+  },
+};
+assert.equal(getOpenCodeServeSessionId(wrappedSessionIdleEvent), "oc-session-events");
+const wrappedSessionCompletedEvent = toOpenCodeServeRuntimeEvent({
+  event: wrappedSessionIdleEvent,
+  run,
+  runtime,
+  sequence: 16,
+  createdAt: now,
+});
+assert.equal(wrappedSessionCompletedEvent.type, "run.completed");
+
+const wrappedFailedEvent = {
+  directory: "/tmp/linka",
+  project: "linka",
+  payload: {
+    id: "evt_wrapped_failed",
+    type: "session.status",
+    properties: {
+      sessionID: "oc-session-events",
+      status: { type: "failed", message: "wrapped failed" },
+    },
+  },
+};
+assert.equal(getOpenCodeServeSessionId(wrappedFailedEvent), "oc-session-events");
+const wrappedFailedRuntimeEvent = toOpenCodeServeRuntimeEvent({
+  event: wrappedFailedEvent,
+  run,
+  runtime,
+  sequence: 17,
+  createdAt: now,
+});
+assert.equal(wrappedFailedRuntimeEvent.type, "run.failed");
+assert.deepEqual(wrappedFailedRuntimeEvent.payload, {
+  kind: "run_status",
+  status: "failed",
+  message: "wrapped failed",
+  details: wrappedFailedEvent,
+});
+
+const wrappedErrorEvent = {
+  directory: "/tmp/linka",
+  project: "linka",
+  payload: {
+    id: "evt_wrapped_error",
+    type: "session.failed",
+    properties: {
+      sessionID: "oc-session-events",
+      error: { message: "wrapped error" },
+    },
+  },
+};
+const wrappedErrorRuntimeEvent = toOpenCodeServeRuntimeEvent({
+  event: wrappedErrorEvent,
+  run,
+  runtime,
+  sequence: 18,
+  createdAt: now,
+});
+assert.equal(wrappedErrorRuntimeEvent.type, "run.failed");
+assert.deepEqual(wrappedErrorRuntimeEvent.payload, {
+  kind: "run_status",
+  status: "failed",
+  message: "wrapped error",
+  details: wrappedErrorEvent,
 });
 
 console.log("opencode serve events: ok");
