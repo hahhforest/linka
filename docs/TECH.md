@@ -284,6 +284,64 @@ LinkA Harness 是参与层。
 
 Runtime 是执行者。
 
+### LinkA Harness 状态机
+
+LinkA Harness 必须按长期参与层建模，不能用一次性 run 代替 agent loop。上下文边界是 `(roomId, agentMemberId)`：同一个 Room 中同一个 Agent 复用同一个 `HarnessSession` 和底层 runtime session；不同 Room 必须隔离。
+
+核心对象：
+
+* `HarnessSession`：Agent 在某个 Room 中的长期参与会话，属于 Harness 层，不属于 Room 本体。
+* `HarnessTurn`：一次触发后的执行轮次，例如被提及、用户说继续、用户干预后继续。
+* `HarnessTrigger`：为什么需要继续执行，例如 `member_mentioned`、`user_continue`、`intervention`、`scheduled_resume`。
+* `RuntimeProcess`：底层 `opencode serve` 进程状态。
+* `RuntimeSession`：底层 OpenCode 原生 session 的 LinkA 引用。
+* `PendingInteraction`：等待用户批准、回答、接管或补充判断的结构化对象。
+* `AgentActivity`：Room/UI 可见的 agent 活动状态，不是 RoomMember。
+
+状态机：
+
+```text
+HarnessSession:
+created -> idle -> queued -> running -> idle
+                         -> waiting_user -> queued
+                         -> paused -> queued
+                         -> failed -> queued
+                         -> terminating -> terminated
+```
+
+```text
+HarnessTurn:
+created -> queued -> projecting -> dispatching -> running
+       -> translating -> writing_room -> completed
+       -> waiting_user
+       -> cancelling -> cancelled
+       -> failed
+```
+
+```text
+HarnessTrigger:
+pending -> claimed -> dispatched -> consumed
+        -> deferred
+        -> dead_letter
+```
+
+```text
+RuntimeProcess:
+stopped -> starting -> healthy -> degraded -> restarting -> healthy
+                               -> stopping -> stopped
+                               -> failed
+```
+
+```text
+RuntimeSession:
+unbound -> creating -> active -> busy -> idle
+                         -> aborting -> idle
+                         -> failed -> recovering -> active
+                         -> closed
+```
+
+Room 仍然只承载 human/agent 成员和消息。Runtime、Tool、HarnessSession、Trigger、Turn 不进入 RoomMember。只有 Harness 翻译后的用户可理解表达才写成 RoomMessage，例如 `status`、`question`、`evidence`、`decision` 或普通 agent text。
+
 ## OpenCode 的职责范围
 
 OpenCode 是第一阶段的底层 Agent runtime。

@@ -12,8 +12,13 @@ export type PinnedItemId = Brand<string, "PinnedItemId">;
 export type DocId = Brand<string, "DocId">;
 export type DocRevisionId = Brand<string, "DocRevisionId">;
 export type DocCommentId = Brand<string, "DocCommentId">;
+export type HarnessSessionId = Brand<string, "HarnessSessionId">;
+export type HarnessTurnId = Brand<string, "HarnessTurnId">;
+export type HarnessTriggerId = Brand<string, "HarnessTriggerId">;
 export type HarnessRunId = Brand<string, "HarnessRunId">;
+export type RuntimeProcessId = Brand<string, "RuntimeProcessId">;
 export type RuntimeSessionId = Brand<string, "RuntimeSessionId">;
+export type PendingInteractionId = Brand<string, "PendingInteractionId">;
 export type RuntimeEventId = Brand<string, "RuntimeEventId">;
 
 export const ID_PREFIXES = {
@@ -29,8 +34,13 @@ export const ID_PREFIXES = {
   doc: "doc_",
   docRevision: "drev_",
   docComment: "dcmt_",
+  harnessSession: "hsess_",
+  harnessTurn: "hturn_",
+  harnessTrigger: "htrig_",
   harnessRun: "hrun_",
+  runtimeProcess: "rproc_",
   runtimeSession: "rsess_",
+  pendingInteraction: "pint_",
   runtimeEvent: "rtevt_",
 } as const;
 
@@ -60,11 +70,21 @@ type IdOf<Key extends IdPrefixKey> = Key extends "room"
                       ? DocRevisionId
                       : Key extends "docComment"
                         ? DocCommentId
-                        : Key extends "harnessRun"
-                          ? HarnessRunId
-                          : Key extends "runtimeSession"
-                            ? RuntimeSessionId
-                            : RuntimeEventId;
+                        : Key extends "harnessSession"
+                          ? HarnessSessionId
+                          : Key extends "harnessTurn"
+                            ? HarnessTurnId
+                            : Key extends "harnessTrigger"
+                              ? HarnessTriggerId
+                              : Key extends "harnessRun"
+                                ? HarnessRunId
+                                : Key extends "runtimeProcess"
+                                  ? RuntimeProcessId
+                                  : Key extends "runtimeSession"
+                                    ? RuntimeSessionId
+                                    : Key extends "pendingInteraction"
+                                      ? PendingInteractionId
+                                      : RuntimeEventId;
 
 const ID_SUFFIX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
@@ -175,6 +195,27 @@ export const parseDocCommentId = (value: unknown): DocCommentId | undefined =>
 export const docCommentId = (value: string): DocCommentId =>
   toPrefixedId(value, "docComment", "DocCommentId");
 
+export const isHarnessSessionId = (value: unknown): value is HarnessSessionId =>
+  isPrefixedId(value, "harnessSession");
+export const parseHarnessSessionId = (value: unknown): HarnessSessionId | undefined =>
+  parsePrefixedId(value, "harnessSession");
+export const harnessSessionId = (value: string): HarnessSessionId =>
+  toPrefixedId(value, "harnessSession", "HarnessSessionId");
+
+export const isHarnessTurnId = (value: unknown): value is HarnessTurnId =>
+  isPrefixedId(value, "harnessTurn");
+export const parseHarnessTurnId = (value: unknown): HarnessTurnId | undefined =>
+  parsePrefixedId(value, "harnessTurn");
+export const harnessTurnId = (value: string): HarnessTurnId =>
+  toPrefixedId(value, "harnessTurn", "HarnessTurnId");
+
+export const isHarnessTriggerId = (value: unknown): value is HarnessTriggerId =>
+  isPrefixedId(value, "harnessTrigger");
+export const parseHarnessTriggerId = (value: unknown): HarnessTriggerId | undefined =>
+  parsePrefixedId(value, "harnessTrigger");
+export const harnessTriggerId = (value: string): HarnessTriggerId =>
+  toPrefixedId(value, "harnessTrigger", "HarnessTriggerId");
+
 export const isHarnessRunId = (value: unknown): value is HarnessRunId =>
   isPrefixedId(value, "harnessRun");
 export const parseHarnessRunId = (value: unknown): HarnessRunId | undefined =>
@@ -182,12 +223,26 @@ export const parseHarnessRunId = (value: unknown): HarnessRunId | undefined =>
 export const harnessRunId = (value: string): HarnessRunId =>
   toPrefixedId(value, "harnessRun", "HarnessRunId");
 
+export const isRuntimeProcessId = (value: unknown): value is RuntimeProcessId =>
+  isPrefixedId(value, "runtimeProcess");
+export const parseRuntimeProcessId = (value: unknown): RuntimeProcessId | undefined =>
+  parsePrefixedId(value, "runtimeProcess");
+export const runtimeProcessId = (value: string): RuntimeProcessId =>
+  toPrefixedId(value, "runtimeProcess", "RuntimeProcessId");
+
 export const isRuntimeSessionId = (value: unknown): value is RuntimeSessionId =>
   isPrefixedId(value, "runtimeSession");
 export const parseRuntimeSessionId = (value: unknown): RuntimeSessionId | undefined =>
   parsePrefixedId(value, "runtimeSession");
 export const runtimeSessionId = (value: string): RuntimeSessionId =>
   toPrefixedId(value, "runtimeSession", "RuntimeSessionId");
+
+export const isPendingInteractionId = (value: unknown): value is PendingInteractionId =>
+  isPrefixedId(value, "pendingInteraction");
+export const parsePendingInteractionId = (value: unknown): PendingInteractionId | undefined =>
+  parsePrefixedId(value, "pendingInteraction");
+export const pendingInteractionId = (value: string): PendingInteractionId =>
+  toPrefixedId(value, "pendingInteraction", "PendingInteractionId");
 
 export const isRuntimeEventId = (value: unknown): value is RuntimeEventId =>
   isPrefixedId(value, "runtimeEvent");

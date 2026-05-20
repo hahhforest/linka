@@ -1,13 +1,122 @@
 import type {
   DocId,
   HarnessRunId,
+  HarnessSessionId,
+  HarnessTriggerId,
+  HarnessTurnId,
+  PendingInteractionId,
   RoomId,
   RoomMemberId,
   RoomMessageId,
   RuntimeEventId,
+  RuntimeProcessId,
   RuntimeSessionId,
 } from "./ids.js";
 import type { UnixMs } from "./primitives.js";
+
+export const HARNESS_SESSION_STATUSES = [
+  "created",
+  "idle",
+  "queued",
+  "running",
+  "waiting_user",
+  "paused",
+  "failed",
+  "terminating",
+  "terminated",
+] as const;
+export type HarnessSessionStatus = (typeof HARNESS_SESSION_STATUSES)[number];
+
+export const HARNESS_TURN_STATUSES = [
+  "created",
+  "queued",
+  "projecting",
+  "dispatching",
+  "running",
+  "translating",
+  "writing_room",
+  "completed",
+  "waiting_user",
+  "cancelling",
+  "cancelled",
+  "failed",
+] as const;
+export type HarnessTurnStatus = (typeof HARNESS_TURN_STATUSES)[number];
+
+export const HARNESS_TRIGGER_STATUSES = [
+  "pending",
+  "claimed",
+  "dispatched",
+  "consumed",
+  "deferred",
+  "dead_letter",
+] as const;
+export type HarnessTriggerStatus = (typeof HARNESS_TRIGGER_STATUSES)[number];
+
+export const HARNESS_TRIGGER_KINDS = [
+  "member_mentioned",
+  "user_continue",
+  "intervention",
+  "manual_start",
+  "scheduled_resume",
+  "approval_resolved",
+  "runtime_recovered",
+] as const;
+export type HarnessTriggerKind = (typeof HARNESS_TRIGGER_KINDS)[number];
+
+export const RUNTIME_PROCESS_STATUSES = [
+  "stopped",
+  "starting",
+  "healthy",
+  "degraded",
+  "restarting",
+  "stopping",
+  "failed",
+] as const;
+export type RuntimeProcessStatus = (typeof RUNTIME_PROCESS_STATUSES)[number];
+
+export const RUNTIME_SESSION_STATUSES = [
+  "unbound",
+  "creating",
+  "active",
+  "busy",
+  "idle",
+  "aborting",
+  "failed",
+  "recovering",
+  "closed",
+] as const;
+export type RuntimeSessionStatus = (typeof RUNTIME_SESSION_STATUSES)[number];
+
+export const PENDING_INTERACTION_STATUSES = [
+  "requested",
+  "approved",
+  "rejected",
+  "answered",
+  "expired",
+  "cancelled",
+] as const;
+export type PendingInteractionStatus = (typeof PENDING_INTERACTION_STATUSES)[number];
+
+export const PENDING_INTERACTION_KINDS = [
+  "approval",
+  "question",
+  "clarification",
+  "handoff",
+  "takeover",
+] as const;
+export type PendingInteractionKind = (typeof PENDING_INTERACTION_KINDS)[number];
+
+export const AGENT_ACTIVITY_STATUSES = [
+  "idle",
+  "queued",
+  "running",
+  "waiting_user",
+  "paused",
+  "offline",
+  "failed",
+] as const;
+export type AgentActivityStatus = (typeof AGENT_ACTIVITY_STATUSES)[number];
 
 export const HARNESS_RUN_STATUSES = [
   "queued",
@@ -59,6 +168,118 @@ export interface RuntimeAdapterCapabilities {
   readonly supportsDocContext: boolean;
   readonly supportsCancellation: boolean;
   readonly supportedEventTypes?: readonly RuntimeEventType[];
+}
+
+export interface AgentParticipationPolicy {
+  readonly triggerMode: "mention_only" | "watch_room" | "manual";
+  readonly maxConcurrentTurns: number;
+  readonly allowAutonomousContinue: boolean;
+  readonly visibleContext: "room" | "mentions" | "docs_only";
+  readonly toolPermissionProfile?: string;
+}
+
+export interface HarnessSession {
+  readonly id: HarnessSessionId;
+  readonly roomId: RoomId;
+  readonly agentMemberId: RoomMemberId;
+  readonly status: HarnessSessionStatus;
+  readonly runtime?: RuntimeSessionRef;
+  readonly policy: AgentParticipationPolicy;
+  readonly createdAt: UnixMs;
+  readonly updatedAt: UnixMs;
+  readonly lastTurnId?: HarnessTurnId;
+  readonly lastTriggerId?: HarnessTriggerId;
+  readonly error?: string;
+}
+
+export interface HarnessTurn {
+  readonly id: HarnessTurnId;
+  readonly sessionId: HarnessSessionId;
+  readonly roomId: RoomId;
+  readonly agentMemberId: RoomMemberId;
+  readonly triggerId: HarnessTriggerId;
+  readonly status: HarnessTurnStatus;
+  readonly runtime?: RuntimeSessionRef;
+  readonly createdAt: UnixMs;
+  readonly updatedAt: UnixMs;
+  readonly startedAt?: UnixMs;
+  readonly completedAt?: UnixMs;
+  readonly summary?: string;
+  readonly error?: string;
+}
+
+export interface HarnessTrigger {
+  readonly id: HarnessTriggerId;
+  readonly sessionId: HarnessSessionId;
+  readonly roomId: RoomId;
+  readonly agentMemberId: RoomMemberId;
+  readonly kind: HarnessTriggerKind;
+  readonly status: HarnessTriggerStatus;
+  readonly createdAt: UnixMs;
+  readonly updatedAt: UnixMs;
+  readonly sourceMessageId?: RoomMessageId;
+  readonly claimedTurnId?: HarnessTurnId;
+  readonly attemptCount: number;
+  readonly payload?: Record<string, unknown>;
+  readonly error?: string;
+}
+
+export interface RuntimeProcess {
+  readonly id: RuntimeProcessId;
+  readonly kind: RuntimeKind;
+  readonly status: RuntimeProcessStatus;
+  readonly pid?: number;
+  readonly port?: number;
+  readonly baseUrl?: string;
+  readonly cwd?: string;
+  readonly createdAt: UnixMs;
+  readonly updatedAt: UnixMs;
+  readonly lastHealthCheckAt?: UnixMs;
+  readonly restartAttempts: number;
+  readonly error?: string;
+}
+
+export interface RuntimeSessionState {
+  readonly id: RuntimeSessionId;
+  readonly processId?: RuntimeProcessId;
+  readonly kind: RuntimeKind;
+  readonly status: RuntimeSessionStatus;
+  readonly adapterSessionId?: string;
+  readonly roomId: RoomId;
+  readonly agentMemberId: RoomMemberId;
+  readonly createdAt: UnixMs;
+  readonly updatedAt: UnixMs;
+  readonly lastTurnId?: HarnessTurnId;
+  readonly error?: string;
+}
+
+export interface PendingInteraction {
+  readonly id: PendingInteractionId;
+  readonly sessionId: HarnessSessionId;
+  readonly turnId?: HarnessTurnId;
+  readonly roomId: RoomId;
+  readonly agentMemberId: RoomMemberId;
+  readonly kind: PendingInteractionKind;
+  readonly status: PendingInteractionStatus;
+  readonly createdAt: UnixMs;
+  readonly updatedAt: UnixMs;
+  readonly requestMessageId?: RoomMessageId;
+  readonly responseMessageId?: RoomMessageId;
+  readonly expiresAt?: UnixMs;
+  readonly payload?: Record<string, unknown>;
+}
+
+export interface AgentActivity {
+  readonly roomId: RoomId;
+  readonly agentMemberId: RoomMemberId;
+  readonly sessionId?: HarnessSessionId;
+  readonly status: AgentActivityStatus;
+  readonly updatedAt: UnixMs;
+  readonly currentTurnId?: HarnessTurnId;
+  readonly currentTriggerId?: HarnessTriggerId;
+  readonly pendingInteractionId?: PendingInteractionId;
+  readonly summary?: string;
+  readonly error?: string;
 }
 
 export interface HarnessRun {
@@ -128,15 +349,46 @@ export interface RuntimeEvent {
   readonly payload: RuntimeEventPayload;
 }
 
+const includesValue = <T extends readonly string[]>(
+  values: T,
+  value: unknown,
+): value is T[number] => typeof value === "string" && values.includes(value);
+
+export const isHarnessSessionStatus = (value: unknown): value is HarnessSessionStatus =>
+  includesValue(HARNESS_SESSION_STATUSES, value);
+
+export const isHarnessTurnStatus = (value: unknown): value is HarnessTurnStatus =>
+  includesValue(HARNESS_TURN_STATUSES, value);
+
+export const isHarnessTriggerStatus = (value: unknown): value is HarnessTriggerStatus =>
+  includesValue(HARNESS_TRIGGER_STATUSES, value);
+
+export const isHarnessTriggerKind = (value: unknown): value is HarnessTriggerKind =>
+  includesValue(HARNESS_TRIGGER_KINDS, value);
+
+export const isRuntimeProcessStatus = (value: unknown): value is RuntimeProcessStatus =>
+  includesValue(RUNTIME_PROCESS_STATUSES, value);
+
+export const isRuntimeSessionStatus = (value: unknown): value is RuntimeSessionStatus =>
+  includesValue(RUNTIME_SESSION_STATUSES, value);
+
+export const isPendingInteractionStatus = (value: unknown): value is PendingInteractionStatus =>
+  includesValue(PENDING_INTERACTION_STATUSES, value);
+
+export const isPendingInteractionKind = (value: unknown): value is PendingInteractionKind =>
+  includesValue(PENDING_INTERACTION_KINDS, value);
+
+export const isAgentActivityStatus = (value: unknown): value is AgentActivityStatus =>
+  includesValue(AGENT_ACTIVITY_STATUSES, value);
+
 export const isHarnessRunStatus = (value: unknown): value is HarnessRunStatus =>
-  typeof value === "string" && HARNESS_RUN_STATUSES.includes(value as HarnessRunStatus);
+  includesValue(HARNESS_RUN_STATUSES, value);
 
 export const isRuntimeKind = (value: unknown): value is RuntimeKind =>
-  typeof value === "string" && RUNTIME_KINDS.includes(value as RuntimeKind);
+  includesValue(RUNTIME_KINDS, value);
 
 export const isRuntimeEventType = (value: unknown): value is RuntimeEventType =>
-  typeof value === "string" && RUNTIME_EVENT_TYPES.includes(value as RuntimeEventType);
+  includesValue(RUNTIME_EVENT_TYPES, value);
 
 export const isRuntimeEventPayloadKind = (value: unknown): value is RuntimeEventPayloadKind =>
-  typeof value === "string" &&
-  RUNTIME_EVENT_PAYLOAD_KINDS.includes(value as RuntimeEventPayloadKind);
+  includesValue(RUNTIME_EVENT_PAYLOAD_KINDS, value);
