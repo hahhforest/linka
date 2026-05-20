@@ -20,7 +20,7 @@ const kindLabel: Record<RoomMessageKind, string> = {
 
 const kindClassName: Record<RoomMessageKind, string> = {
   text: "border-line bg-paper text-ink",
-  instruction: "border-signal/40 bg-[#e8f2f6] text-signal",
+  instruction: "border-[#6f52d9]/30 bg-[#ede8ff] text-[#6f52d9]",
   status: "border-line bg-paper text-muted",
   question: "border-caution/40 bg-[#fff3d8] text-caution",
   decision: "border-linka/40 bg-[#dceee8] text-linka",
@@ -37,108 +37,121 @@ const formatTime = (createdAt: number): string =>
     minute: "2-digit",
   }).format(new Date(createdAt));
 
-const getSenderName = (message: RoomMessage, members: readonly RoomMember[]): string => {
+const getSender = (
+  message: RoomMessage,
+  members: readonly RoomMember[],
+): RoomMember | undefined => {
   const { sender } = message;
+  if (sender.kind === "system") return undefined;
+  return members.find((member) => member.id === sender.memberId);
+};
 
-  if (sender.kind === "system") {
-    return sender.label ?? "System";
-  }
-
-  return members.find((member) => member.id === sender.memberId)?.displayName ?? "未知成员";
+const getSenderName = (message: RoomMessage, members: readonly RoomMember[]): string => {
+  if (message.sender.kind === "system") return message.sender.label ?? "System";
+  return getSender(message, members)?.displayName ?? "未知成员";
 };
 
 const getSenderKind = (message: RoomMessage, members: readonly RoomMember[]): string => {
-  const { sender } = message;
-
-  if (sender.kind === "system") {
-    return "system";
-  }
-
-  return members.find((member) => member.id === sender.memberId)?.kind ?? "member";
+  if (message.sender.kind === "system") return "system";
+  return getSender(message, members)?.kind ?? "member";
 };
 
+const avatarClass = (kind: string): string =>
+  kind === "agent" ? "bg-[#dceee8] text-linka" : "bg-[#d8ecf5] text-signal";
+
 export const Timeline = ({ messages, members }: TimelineProps) => (
-  <section className="linka-scrollbar max-h-none overflow-visible px-4 py-4 sm:px-6 lg:max-h-[calc(100vh-232px)] lg:overflow-y-auto">
-    <ol className="grid gap-3" aria-label="Room timeline">
-      {messages.map((message) => (
-        <li
-          key={message.id}
-          className="rounded-lg border border-line bg-panel p-3 shadow-sm sm:p-4"
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold">{getSenderName(message, members)}</span>
-            <span className="font-mono text-xs text-muted">{getSenderKind(message, members)}</span>
+  <section className="linka-scrollbar max-h-none overflow-visible px-4 py-4 sm:px-6 lg:max-h-[calc(100vh-322px)] lg:overflow-y-auto">
+    <ol className="grid gap-4" aria-label="Room timeline">
+      {messages.map((message) => {
+        const senderKind = getSenderKind(message, members);
+        const senderName = getSenderName(message, members);
+
+        return (
+          <li key={message.id} className="grid grid-cols-[42px_minmax(0,1fr)] gap-3">
             <span
-              className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${kindClassName[message.kind]}`}
+              className={`flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold ${avatarClass(senderKind)}`}
             >
-              {kindLabel[message.kind]}
+              {senderName.slice(0, 1)}
             </span>
-            <time
-              className="ml-auto font-mono text-xs text-muted"
-              dateTime={new Date(message.createdAt).toISOString()}
-            >
-              #{message.sequence} · {formatTime(message.createdAt)}
-            </time>
-          </div>
-
-          {message.replyTo ? (
-            <p className="mt-3 rounded-md border-l-4 border-line bg-paper px-3 py-2 font-mono text-xs text-muted">
-              reply to {message.replyTo.messageId}
-            </p>
-          ) : null}
-
-          {message.text ? (
-            <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6">{message.text}</p>
-          ) : null}
-
-          {message.mentions && message.mentions.length > 0 ? (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {message.mentions.map((mention) => (
+            <article className="min-w-0 border-b border-line pb-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold">{senderName}</span>
+                <span className="font-mono text-xs text-muted">{senderKind}</span>
                 <span
-                  key={`${message.id}-${mention.memberId}`}
-                  className="rounded-md border border-linka/30 bg-[#dceee8] px-2 py-1 text-xs font-semibold text-linka"
+                  className={`rounded-md border px-2 py-0.5 text-xs font-semibold ${kindClassName[message.kind]}`}
                 >
-                  {mention.displayText ?? mention.memberId}
+                  {kindLabel[message.kind]}
                 </span>
-              ))}
-            </div>
-          ) : null}
-
-          {message.evidence && message.evidence.length > 0 ? (
-            <div className="mt-3 grid gap-2">
-              {message.evidence.map((evidence) => (
-                <div
-                  key={`${message.id}-${evidence.label}`}
-                  className="rounded-lg border border-signal/30 bg-[#f1f8fa] p-3"
+                <time
+                  className="ml-auto font-mono text-xs text-muted"
+                  dateTime={new Date(message.createdAt).toISOString()}
                 >
-                  <p className="text-sm font-semibold text-signal">{evidence.label}</p>
-                  {evidence.summary ? (
-                    <p className="mt-1 break-words text-sm leading-5 text-muted">
-                      {evidence.summary}
-                    </p>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
+                  #{message.sequence} · {formatTime(message.createdAt)}
+                </time>
+              </div>
 
-          {message.attachments && message.attachments.length > 0 ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {message.attachments.map((attachment) => (
-                <div
-                  key={attachment.id}
-                  className="min-w-0 rounded-lg border border-line bg-paper p-3"
-                >
-                  <p className="truncate text-sm font-medium">{attachment.name}</p>
-                  <p className="mt-1 font-mono text-xs text-muted">
-                    {attachment.kind} · {attachment.contentType ?? "link"}
-                  </p>
+              {message.replyTo ? (
+                <p className="mt-3 rounded-md border-l-4 border-line bg-paper px-3 py-2 font-mono text-xs text-muted">
+                  reply to {message.replyTo.messageId}
+                </p>
+              ) : null}
+
+              {message.text ? (
+                <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6">
+                  {message.text}
+                </p>
+              ) : null}
+
+              {message.mentions && message.mentions.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {message.mentions.map((mention) => (
+                    <span
+                      key={`${message.id}-${mention.memberId}`}
+                      className="rounded-md border border-linka/30 bg-[#dceee8] px-2 py-1 text-xs font-semibold text-linka"
+                    >
+                      {mention.displayText ?? mention.memberId}
+                    </span>
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : null}
-        </li>
-      ))}
+              ) : null}
+
+              {message.evidence && message.evidence.length > 0 ? (
+                <div className="mt-3 grid gap-2">
+                  {message.evidence.map((evidence) => (
+                    <div
+                      key={`${message.id}-${evidence.label}`}
+                      className="rounded-lg border border-signal/30 bg-[#f1f8fa] p-3"
+                    >
+                      <p className="text-sm font-semibold text-signal">{evidence.label}</p>
+                      {evidence.summary ? (
+                        <p className="mt-1 break-words text-sm leading-5 text-muted">
+                          {evidence.summary}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {message.attachments && message.attachments.length > 0 ? (
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {message.attachments.map((attachment) => (
+                    <div
+                      key={attachment.id}
+                      className="min-w-0 rounded-lg border border-line bg-paper p-3"
+                    >
+                      <p className="truncate text-sm font-medium">{attachment.name}</p>
+                      <p className="mt-1 font-mono text-xs text-muted">
+                        {attachment.kind} · {attachment.contentType ?? "link"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          </li>
+        );
+      })}
     </ol>
   </section>
 );
