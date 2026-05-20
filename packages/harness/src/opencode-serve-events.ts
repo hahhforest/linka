@@ -59,8 +59,40 @@ const getNestedRecord = (
   return undefined;
 };
 
+const getProperties = (event: OpenCodeServeEvent): Record<string, unknown> | undefined =>
+  getNestedRecord(event, ["properties"]);
+
+const getEventRecords = (event: OpenCodeServeEvent): readonly Record<string, unknown>[] => {
+  const properties = getProperties(event);
+  return properties === undefined ? [event] : [event, properties];
+};
+
+const getStringFieldFromEvent = (
+  event: OpenCodeServeEvent,
+  keys: readonly string[],
+): string | undefined => {
+  for (const record of getEventRecords(event)) {
+    const field = getStringField(record, keys);
+    if (field !== undefined) return field;
+  }
+
+  return undefined;
+};
+
+const getNestedRecordFromEvent = (
+  event: OpenCodeServeEvent,
+  keys: readonly string[],
+): Record<string, unknown> | undefined => {
+  for (const record of getEventRecords(event)) {
+    const nested = getNestedRecord(record, keys);
+    if (nested !== undefined) return nested;
+  }
+
+  return undefined;
+};
+
 export const getOpenCodeServeSessionId = (event: OpenCodeServeEvent): string | undefined => {
-  const directSessionId = getStringField(event, [
+  const directSessionId = getStringFieldFromEvent(event, [
     "sessionID",
     "sessionId",
     "session_id",
@@ -69,7 +101,7 @@ export const getOpenCodeServeSessionId = (event: OpenCodeServeEvent): string | u
   ]);
   if (directSessionId !== undefined) return directSessionId;
 
-  const session = getNestedRecord(event, ["session"]);
+  const session = getNestedRecordFromEvent(event, ["session"]);
   if (session === undefined) return undefined;
 
   return getStringField(session, ["id", "sessionID", "sessionId", "session_id"]);
@@ -83,8 +115,8 @@ export const isOpenCodeServeEventForSession = (
 export const getOpenCodeServeTerminalState = (
   event: OpenCodeServeEvent,
 ): OpenCodeServeTerminalState | undefined => {
-  const type = getStringField(event, ["type", "event"]);
-  const status = getStringField(event, ["status", "state"]);
+  const type = getStringFieldFromEvent(event, ["type", "event"]);
+  const status = getStringFieldFromEvent(event, ["status", "state"]);
 
   if (type === "session.idle" || status === "idle") return "idle";
   if (type === "session.error" || status === "error") return "error";
@@ -103,18 +135,18 @@ const getPartText = (part: Record<string, unknown>): string | undefined => {
 };
 
 export const getOpenCodeServeOutputText = (event: OpenCodeServeEvent): string | undefined => {
-  const type = getStringField(event, ["type", "event"]);
-  const directText = getStringField(event, ["text", "delta", "content"]);
+  const type = getStringFieldFromEvent(event, ["type", "event"]);
+  const directText = getStringFieldFromEvent(event, ["text", "delta", "content"]);
 
   if (type === "message.part.delta" && directText !== undefined) return directText;
 
-  const delta = getNestedRecord(event, ["delta"]);
+  const delta = getNestedRecordFromEvent(event, ["delta"]);
   if (type === "message.part.delta" && delta !== undefined) {
     const deltaText = getStringField(delta, ["text", "content"]);
     if (deltaText !== undefined) return deltaText;
   }
 
-  const part = getNestedRecord(event, ["part"]);
+  const part = getNestedRecordFromEvent(event, ["part"]);
   if (part === undefined) return undefined;
 
   const partType = getStringField(part, ["type"]);
@@ -127,11 +159,11 @@ export const getOpenCodeServeOutputText = (event: OpenCodeServeEvent): string | 
 };
 
 const getErrorMessage = (event: OpenCodeServeEvent): string => {
-  const directMessage = getStringField(event, ["error", "message", "text", "content"]);
+  const directMessage = getStringFieldFromEvent(event, ["error", "message", "text", "content"]);
   if (directMessage !== undefined && directMessage.trim().length > 0) return directMessage;
 
-  const error = event.error;
-  if (isRecord(error)) {
+  const error = getNestedRecordFromEvent(event, ["error"]);
+  if (error !== undefined) {
     const nestedMessage = getStringField(error, ["message", "name", "code"]);
     if (nestedMessage !== undefined && nestedMessage.trim().length > 0) return nestedMessage;
   }
