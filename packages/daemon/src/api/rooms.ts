@@ -24,7 +24,6 @@ import {
   unixMs,
 } from "@linka/shared";
 import { Hono } from "hono";
-import { createFakeHarnessReply } from "@linka/harness";
 
 import { errorResponse } from "./errors.js";
 import type { DaemonContainer } from "../container/index.js";
@@ -356,7 +355,11 @@ const addMember = (
   return member;
 };
 
-const publishMessageCreated = (container: DaemonContainer, roomId: Room["id"], message: RoomMessage): void => {
+const publishMessageCreated = (
+  container: DaemonContainer,
+  roomId: Room["id"],
+  message: RoomMessage,
+): void => {
   publishRoomEvent(container, {
     roomId,
     type: "message.created",
@@ -387,39 +390,14 @@ const getMentionedHarnessTarget = (
     .find((member): member is RoomMember => member?.kind === "agent");
 };
 
-const createDefaultHarnessRunner =
-  (container: DaemonContainer): RoomHarnessRunner =>
-  ({ room, members, message, targetMember }) => {
-    const recentMessages = container.messageStore.listMessages(room.id, {
-      afterSequence: 0,
-      limit: 20,
-    });
-    const reply = createFakeHarnessReply({
-      room,
-      members,
-      messages: recentMessages,
-      targetMember,
-    });
-    const replyMessage = container.messageStore.appendMessage({
-      id: createMessageApiId(),
-      roomId: room.id,
-      sender: { kind: "member", memberId: targetMember.id },
-      kind: "text",
-      createdAt: unixMs(Date.now()),
-      text: reply.text,
-      replyTo: { messageId: message.id },
-      visibility: defaultVisibility,
-      notification: defaultNotificationPolicy,
-    });
-
-    publishMessageCreated(container, room.id, replyMessage);
-  };
-
 const logHarnessRunnerError = (error: unknown): void => {
   console.error("room harness runner failed", error);
 };
 
-const runHarnessRunner = (harnessRunner: RoomHarnessRunner, input: RoomHarnessRunnerInput): void => {
+const runHarnessRunner = (
+  harnessRunner: RoomHarnessRunner,
+  input: RoomHarnessRunnerInput,
+): void => {
   try {
     void Promise.resolve(harnessRunner(input)).catch(logHarnessRunnerError);
   } catch (error) {
@@ -431,7 +409,7 @@ const appendMessage = (
   container: DaemonContainer,
   id: Room["id"],
   body: AppendMessageRequestBody,
-  harnessRunner: RoomHarnessRunner,
+  harnessRunner: RoomHarnessRunner | undefined,
 ): RoomMessage => {
   const room = ensureRoom(container, id);
   const object = assertBodyObject(body);
@@ -459,7 +437,7 @@ const appendMessage = (
   publishMessageCreated(container, id, message);
 
   const targetMember = getMentionedHarnessTarget(members, message);
-  if (targetMember) {
+  if (targetMember && harnessRunner) {
     runHarnessRunner(harnessRunner, { room, members, message, targetMember });
   }
 
@@ -483,7 +461,7 @@ export function createRoomsRoute(
   options: CreateRoomsRouteOptions = {},
 ): Hono {
   const app = new Hono();
-  const harnessRunner = options.harnessRunner ?? createDefaultHarnessRunner(container);
+  const harnessRunner = options.harnessRunner;
 
   app.post("/rooms", async (c) => {
     try {
@@ -529,7 +507,10 @@ export function createRoomsRoute(
     try {
       const id = parseRoomPathId(c.req.param("roomId"));
       ensureRoom(container, id);
-      const response: MemberListResponse = { ok: true, members: container.roomStore.listMembers(id) };
+      const response: MemberListResponse = {
+        ok: true,
+        members: container.roomStore.listMembers(id),
+      };
       return c.json(response);
     } catch (error) {
       return handleRouteError(c, error);

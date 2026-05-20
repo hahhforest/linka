@@ -1,4 +1,4 @@
-import { OpenCodeCliRuntimeAdapter, type RuntimeAdapter } from "@linka/harness";
+import type { RuntimeAdapter } from "@linka/harness";
 import {
   roomMessageId,
   unixMs,
@@ -112,17 +112,16 @@ const appendOutputMessage = (
     notification: defaultNotificationPolicy,
   });
 
-export const createOpenCodeRoomHarnessRunner =
-  ({
-    container,
-    adapter = new OpenCodeCliRuntimeAdapter({
-      agent: "build",
-      model: DEFAULT_OPENCODE_MODEL,
-      variant: DEFAULT_OPENCODE_VARIANT,
-    }),
-    now,
-  }: CreateOpenCodeRoomHarnessRunnerOptions): RoomHarnessRunner =>
-  async (input) => {
+export const createOpenCodeRoomHarnessRunner = ({
+  container,
+  adapter,
+  now,
+}: CreateOpenCodeRoomHarnessRunnerOptions): RoomHarnessRunner => {
+  if (!adapter) {
+    throw new Error("OpenCode room harness runner requires a runtime adapter");
+  }
+
+  return async (input) => {
     const result = await startHarnessRun({
       container,
       adapter,
@@ -143,3 +142,4 @@ export const createOpenCodeRoomHarnessRunner =
     const message = appendOutputMessage(container, input, outputText, createdAt);
     publishMessageCreated(container, input.room.id, message, createdAt);
   };
+};

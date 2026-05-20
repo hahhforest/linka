@@ -120,7 +120,11 @@ test("POST /linka/dev/events appends before publishing to active SSE subscribers
     const postResponse = await app.request("http://127.0.0.1/linka/dev/events", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "dev.message", roomId: "room_alpha", payload: { text: "hello" } }),
+      body: JSON.stringify({
+        type: "dev.message",
+        roomId: "room_alpha",
+        payload: { text: "hello" },
+      }),
     });
     const body = (await postResponse.json()) as { ok: true; event: PersistedDaemonEvent };
     const streamedEvent = await streamRead;
@@ -315,8 +319,7 @@ test("room API rejects sending from an unknown sender member", async () => {
   }
 });
 
-
-test("fake harness replies as mentioned agent without creating a system log", async () => {
+test("room API does not run a harness without an injected runner", async () => {
   const container = createTestContainer();
 
   try {
@@ -332,7 +335,11 @@ test("fake harness replies as mentioned agent without creating a system log", as
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_harness_human", kind: "human", displayName: "Human" }),
+        body: JSON.stringify({
+          participantId: "part_harness_human",
+          kind: "human",
+          displayName: "Human",
+        }),
       },
     );
     const agentResponse = await app.request(
@@ -340,7 +347,11 @@ test("fake harness replies as mentioned agent without creating a system log", as
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_harness_agent", kind: "agent", displayName: "Research Agent" }),
+        body: JSON.stringify({
+          participantId: "part_harness_agent",
+          kind: "agent",
+          displayName: "Research Agent",
+        }),
       },
     );
     const humanBody = (await humanResponse.json()) as { ok: true; member: { id: string } };
@@ -367,29 +378,34 @@ test("fake harness replies as mentioned agent without creating a system log", as
     );
     const historyBody = (await historyResponse.json()) as {
       ok: true;
-      messages: readonly { id: string; sequence: number; sender: { kind: string; memberId?: string }; text?: string; replyTo?: { messageId: string } }[];
+      messages: readonly unknown[];
     };
 
-    assert.equal(historyBody.messages.length, 2);
-    assert.equal(historyBody.messages[0]?.sender.memberId, humanBody.member.id);
-    assert.equal(historyBody.messages[1]?.sender.kind, "member");
-    assert.equal(historyBody.messages[1]?.sender.memberId, agentBody.member.id);
-    assert.match(historyBody.messages[1]?.text ?? "", /Research Agent/);
-    assert.equal(historyBody.messages[1]?.replyTo?.messageId, historyBody.messages[0]?.id);
+    assert.equal(historyBody.messages.length, 1);
     assert.deepEqual(
-      container.eventStore.listAfter(0, 20).map((event) => event.type).slice(-2),
-      ["message.created", "message.created"],
+      container.eventStore
+        .listAfter(0, 20)
+        .map((event) => event.type)
+        .slice(-1),
+      ["message.created"],
     );
   } finally {
     container.close();
   }
 });
 
-test("fake harness does not reply to agent-authored mentions", async () => {
+test("injected harness runner does not reply to agent-authored mentions", async () => {
   const container = createTestContainer();
 
   try {
-    const app = createDaemonApp(container);
+    const harnessCalls: RoomHarnessRunnerInput[] = [];
+    const app = createDaemonApp(container, {
+      rooms: {
+        harnessRunner: (input) => {
+          harnessCalls.push(input);
+        },
+      },
+    });
     const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -401,7 +417,11 @@ test("fake harness does not reply to agent-authored mentions", async () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_agent_a", kind: "agent", displayName: "Agent A" }),
+        body: JSON.stringify({
+          participantId: "part_agent_a",
+          kind: "agent",
+          displayName: "Agent A",
+        }),
       },
     );
     const secondAgentResponse = await app.request(
@@ -409,11 +429,21 @@ test("fake harness does not reply to agent-authored mentions", async () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_agent_b", kind: "agent", displayName: "Agent B" }),
+        body: JSON.stringify({
+          participantId: "part_agent_b",
+          kind: "agent",
+          displayName: "Agent B",
+        }),
       },
     );
-    const firstAgentBody = (await firstAgentResponse.json()) as { ok: true; member: { id: string } };
-    const secondAgentBody = (await secondAgentResponse.json()) as { ok: true; member: { id: string } };
+    const firstAgentBody = (await firstAgentResponse.json()) as {
+      ok: true;
+      member: { id: string };
+    };
+    const secondAgentBody = (await secondAgentResponse.json()) as {
+      ok: true;
+      member: { id: string };
+    };
 
     const messageResponse = await app.request(
       `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
@@ -433,9 +463,13 @@ test("fake harness does not reply to agent-authored mentions", async () => {
     const historyResponse = await app.request(
       `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages?afterSequence=0&limit=10`,
     );
-    const historyBody = (await historyResponse.json()) as { ok: true; messages: readonly unknown[] };
+    const historyBody = (await historyResponse.json()) as {
+      ok: true;
+      messages: readonly unknown[];
+    };
 
     assert.equal(historyBody.messages.length, 1);
+    assert.equal(harnessCalls.length, 0);
   } finally {
     container.close();
   }
@@ -464,7 +498,11 @@ test("injected room harness runner replaces fake reply and ignores agent-authore
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_hook_human", kind: "human", displayName: "Human" }),
+        body: JSON.stringify({
+          participantId: "part_hook_human",
+          kind: "human",
+          displayName: "Human",
+        }),
       },
     );
     const firstAgentResponse = await app.request(
@@ -472,7 +510,11 @@ test("injected room harness runner replaces fake reply and ignores agent-authore
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_hook_agent_a", kind: "agent", displayName: "Agent A" }),
+        body: JSON.stringify({
+          participantId: "part_hook_agent_a",
+          kind: "agent",
+          displayName: "Agent A",
+        }),
       },
     );
     const secondAgentResponse = await app.request(
@@ -480,12 +522,22 @@ test("injected room harness runner replaces fake reply and ignores agent-authore
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_hook_agent_b", kind: "agent", displayName: "Agent B" }),
+        body: JSON.stringify({
+          participantId: "part_hook_agent_b",
+          kind: "agent",
+          displayName: "Agent B",
+        }),
       },
     );
     const humanBody = (await humanResponse.json()) as { ok: true; member: { id: string } };
-    const firstAgentBody = (await firstAgentResponse.json()) as { ok: true; member: { id: string } };
-    const secondAgentBody = (await secondAgentResponse.json()) as { ok: true; member: { id: string } };
+    const firstAgentBody = (await firstAgentResponse.json()) as {
+      ok: true;
+      member: { id: string };
+    };
+    const secondAgentBody = (await secondAgentResponse.json()) as {
+      ok: true;
+      member: { id: string };
+    };
 
     const humanMessageResponse = await app.request(
       `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
@@ -500,7 +552,10 @@ test("injected room harness runner replaces fake reply and ignores agent-authore
         }),
       },
     );
-    const humanMessageBody = (await humanMessageResponse.json()) as { ok: true; message: { id: string } };
+    const humanMessageBody = (await humanMessageResponse.json()) as {
+      ok: true;
+      message: { id: string };
+    };
 
     assert.equal(humanMessageResponse.status, 201);
     assert.equal(harnessCalls.length, 1);
@@ -588,7 +643,11 @@ test("injected room harness runner failure does not fail message POST", async ()
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_failure_human", kind: "human", displayName: "Human" }),
+        body: JSON.stringify({
+          participantId: "part_failure_human",
+          kind: "human",
+          displayName: "Human",
+        }),
       },
     );
     const agentResponse = await app.request(
@@ -596,7 +655,11 @@ test("injected room harness runner failure does not fail message POST", async ()
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_failure_agent", kind: "agent", displayName: "Agent" }),
+        body: JSON.stringify({
+          participantId: "part_failure_agent",
+          kind: "agent",
+          displayName: "Agent",
+        }),
       },
     );
     const humanBody = (await humanResponse.json()) as { ok: true; member: { id: string } };
@@ -656,7 +719,11 @@ test("doc API lists room docs and returns doc detail with revisions and comments
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_doc_owner", kind: "human", displayName: "Doc Owner" }),
+        body: JSON.stringify({
+          participantId: "part_doc_owner",
+          kind: "human",
+          displayName: "Doc Owner",
+        }),
       },
     );
     const memberBody = (await memberResponse.json()) as { ok: true; member: { id: string } };
@@ -757,7 +824,11 @@ test("doc API creates docs through room context", async () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_doc_creator", kind: "human", displayName: "Doc Creator" }),
+        body: JSON.stringify({
+          participantId: "part_doc_creator",
+          kind: "human",
+          displayName: "Doc Creator",
+        }),
       },
     );
     const memberBody = (await memberResponse.json()) as { ok: true; member: { id: string } };
@@ -841,7 +912,11 @@ test("doc API rejects missing and cross-room creator members", async () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_cross_doc_creator", kind: "human", displayName: "Creator" }),
+        body: JSON.stringify({
+          participantId: "part_cross_doc_creator",
+          kind: "human",
+          displayName: "Creator",
+        }),
       },
     );
     const memberBody = (await memberResponse.json()) as { ok: true; member: { id: string } };
@@ -870,7 +945,10 @@ test("doc API rejects missing and cross-room creator members", async () => {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: "Wrong Room Member", createdByMemberId: memberBody.member.id }),
+        body: JSON.stringify({
+          title: "Wrong Room Member",
+          createdByMemberId: memberBody.member.id,
+        }),
       },
     );
     const crossRoomMemberBody = await crossRoomMemberResponse.json();
@@ -946,7 +1024,11 @@ test("harness run API lists room runs and run events without publishing room eve
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ participantId: "part_run_api_agent", kind: "agent", displayName: "Run Agent" }),
+        body: JSON.stringify({
+          participantId: "part_run_api_agent",
+          kind: "agent",
+          displayName: "Run Agent",
+        }),
       },
     );
     const agentBody = (await agentResponse.json()) as { ok: true; member: { id: string } };
@@ -999,8 +1081,13 @@ test("harness run API lists room runs and run events without publishing room eve
     assert.equal(runsResponse.status, 200);
     assert.deepEqual(runsBody, { ok: true, runs: [toJsonBody(createdRun)] });
 
-    const eventsResponse = await app.request(`http://127.0.0.1/linka/harness-runs/${run.id}/events`);
-    const eventsBody = (await eventsResponse.json()) as { ok: true; events: readonly RuntimeEvent[] };
+    const eventsResponse = await app.request(
+      `http://127.0.0.1/linka/harness-runs/${run.id}/events`,
+    );
+    const eventsBody = (await eventsResponse.json()) as {
+      ok: true;
+      events: readonly RuntimeEvent[];
+    };
 
     assert.equal(eventsResponse.status, 200);
     assert.deepEqual(eventsBody, { ok: true, events: [toJsonBody(createdEvent)] });
@@ -1015,7 +1102,9 @@ test("harness run API returns uniform errors for bad ids and missing runs", asyn
 
   try {
     const app = createDaemonApp(container);
-    const badRoomIdResponse = await app.request("http://127.0.0.1/linka/rooms/not-a-room/harness-runs");
+    const badRoomIdResponse = await app.request(
+      "http://127.0.0.1/linka/rooms/not-a-room/harness-runs",
+    );
     const badRoomIdBody = await badRoomIdResponse.json();
 
     assert.equal(badRoomIdResponse.status, 400);
@@ -1024,7 +1113,9 @@ test("harness run API returns uniform errors for bad ids and missing runs", asyn
       error: { code: "BAD_REQUEST", message: "roomId must be a valid room id" },
     });
 
-    const missingRoomResponse = await app.request("http://127.0.0.1/linka/rooms/room_missing/harness-runs");
+    const missingRoomResponse = await app.request(
+      "http://127.0.0.1/linka/rooms/room_missing/harness-runs",
+    );
     const missingRoomBody = await missingRoomResponse.json();
 
     assert.equal(missingRoomResponse.status, 404);
@@ -1033,7 +1124,9 @@ test("harness run API returns uniform errors for bad ids and missing runs", asyn
       error: { code: "NOT_FOUND", message: "room not found" },
     });
 
-    const badRunIdResponse = await app.request("http://127.0.0.1/linka/harness-runs/not-a-run/events");
+    const badRunIdResponse = await app.request(
+      "http://127.0.0.1/linka/harness-runs/not-a-run/events",
+    );
     const badRunIdBody = await badRunIdResponse.json();
 
     assert.equal(badRunIdResponse.status, 400);
@@ -1042,7 +1135,9 @@ test("harness run API returns uniform errors for bad ids and missing runs", asyn
       error: { code: "BAD_REQUEST", message: "runId must be a valid harness run id" },
     });
 
-    const missingRunResponse = await app.request("http://127.0.0.1/linka/harness-runs/hrun_missing/events");
+    const missingRunResponse = await app.request(
+      "http://127.0.0.1/linka/harness-runs/hrun_missing/events",
+    );
     const missingRunBody = await missingRunResponse.json();
 
     assert.equal(missingRunResponse.status, 404);
