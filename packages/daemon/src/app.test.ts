@@ -5,12 +5,17 @@ import {
   docCommentId,
   docId,
   docRevisionId,
+  harnessRunId,
   roomId,
   roomMemberId,
+  runtimeEventId,
+  runtimeSessionId,
   unixMs,
   type Doc,
   type DocComment,
   type DocRevision,
+  type HarnessRun,
+  type RuntimeEvent,
 } from "@linka/shared";
 
 import { createDaemonApp } from "./app.js";
@@ -919,6 +924,131 @@ test("doc API returns uniform errors for bad ids and missing docs", async () => 
     assert.deepEqual(missingDocBody, {
       ok: false,
       error: { code: "NOT_FOUND", message: "doc not found" },
+    });
+  } finally {
+    container.close();
+  }
+});
+
+test("harness run API lists room runs and run events without publishing room events", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Run API Room" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+    const agentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ participantId: "part_run_api_agent", kind: "agent", displayName: "Run Agent" }),
+      },
+    );
+    const agentBody = (await agentResponse.json()) as { ok: true; member: { id: string } };
+    const contextRoomId = roomId(createRoomBody.room.id);
+    const targetMemberId = roomMemberId(agentBody.member.id);
+    const now = unixMs(1_716_000_000_000);
+    const runtime = {
+      id: runtimeSessionId("rsess_api_run"),
+      kind: "opencode" as const,
+      adapterSessionId: "api-run-session",
+      label: "API Run Session",
+    };
+    const run: HarnessRun = {
+      id: harnessRunId("hrun_api_visible"),
+      roomId: contextRoomId,
+      targetMemberId,
+      status: "succeeded",
+      runtime,
+      createdAt: now,
+      updatedAt: unixMs(1_716_000_000_010),
+      startedAt: now,
+      completedAt: unixMs(1_716_000_000_010),
+      summary: "run finished",
+    };
+    const event: RuntimeEvent = {
+      id: runtimeEventId("rtevt_api_output"),
+      runId: run.id,
+      roomId: contextRoomId,
+      targetMemberId,
+      sequence: 1,
+      type: "adapter.output",
+      createdAt: unixMs(1_716_000_000_005),
+      runtime,
+      payload: { kind: "adapter_output", stream: "summary", text: "run finished" },
+    };
+
+    assert.equal(createRoomResponse.status, 201);
+    assert.equal(agentResponse.status, 201);
+
+    container.harnessRunStore.createRuntimeSession(runtime);
+    const createdRun = container.harnessRunStore.createRun(run);
+    const createdEvent = container.harnessRunStore.appendEvent(event);
+    const eventCountBeforeRead = container.eventStore.listAfter(0, 20).length;
+
+    const runsResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${contextRoomId}/harness-runs`,
+    );
+    const runsBody = (await runsResponse.json()) as { ok: true; runs: readonly HarnessRun[] };
+
+    assert.equal(runsResponse.status, 200);
+    assert.deepEqual(runsBody, { ok: true, runs: [toJsonBody(createdRun)] });
+
+    const eventsResponse = await app.request(`http://127.0.0.1/linka/harness-runs/${run.id}/events`);
+    const eventsBody = (await eventsResponse.json()) as { ok: true; events: readonly RuntimeEvent[] };
+
+    assert.equal(eventsResponse.status, 200);
+    assert.deepEqual(eventsBody, { ok: true, events: [toJsonBody(createdEvent)] });
+    assert.equal(container.eventStore.listAfter(0, 20).length, eventCountBeforeRead);
+  } finally {
+    container.close();
+  }
+});
+
+test("harness run API returns uniform errors for bad ids and missing runs", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const badRoomIdResponse = await app.request("http://127.0.0.1/linka/rooms/not-a-room/harness-runs");
+    const badRoomIdBody = await badRoomIdResponse.json();
+
+    assert.equal(badRoomIdResponse.status, 400);
+    assert.deepEqual(badRoomIdBody, {
+      ok: false,
+      error: { code: "BAD_REQUEST", message: "roomId must be a valid room id" },
+    });
+
+    const missingRoomResponse = await app.request("http://127.0.0.1/linka/rooms/room_missing/harness-runs");
+    const missingRoomBody = await missingRoomResponse.json();
+
+    assert.equal(missingRoomResponse.status, 404);
+    assert.deepEqual(missingRoomBody, {
+      ok: false,
+      error: { code: "NOT_FOUND", message: "room not found" },
+    });
+
+    const badRunIdResponse = await app.request("http://127.0.0.1/linka/harness-runs/not-a-run/events");
+    const badRunIdBody = await badRunIdResponse.json();
+
+    assert.equal(badRunIdResponse.status, 400);
+    assert.deepEqual(badRunIdBody, {
+      ok: false,
+      error: { code: "BAD_REQUEST", message: "runId must be a valid harness run id" },
+    });
+
+    const missingRunResponse = await app.request("http://127.0.0.1/linka/harness-runs/hrun_missing/events");
+    const missingRunBody = await missingRunResponse.json();
+
+    assert.equal(missingRunResponse.status, 404);
+    assert.deepEqual(missingRunBody, {
+      ok: false,
+      error: { code: "NOT_FOUND", message: "harness run not found" },
     });
   } finally {
     container.close();
