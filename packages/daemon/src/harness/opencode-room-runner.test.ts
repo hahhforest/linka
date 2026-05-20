@@ -186,84 +186,86 @@ const withOpenCodeRunnerContext = async (
   }
 };
 
-await withOpenCodeRunnerContext(async ({ container, room, members, agent, message, doc, comment }) => {
-  let receivedRun: HarnessRun | undefined;
-  let receivedProjection: HarnessProjection | undefined;
-  const runtime: RuntimeSessionRef = {
-    id: runtimeSessionId("rsess_opencode_runner_fake"),
-    kind: "test",
-    adapterSessionId: "fake-opencode-session",
-    label: "Fake OpenCode Runtime",
-  };
-  const adapter = {
-    getCapabilities: () => capabilities,
-    startRun: async (input) => {
-      receivedRun = input.run;
-      receivedProjection = input.projection;
+await withOpenCodeRunnerContext(
+  async ({ container, room, members, agent, message, doc, comment }) => {
+    let receivedRun: HarnessRun | undefined;
+    let receivedProjection: HarnessProjection | undefined;
+    const runtime: RuntimeSessionRef = {
+      id: runtimeSessionId("rsess_opencode_runner_fake"),
+      kind: "test",
+      adapterSessionId: "fake-opencode-session",
+      label: "Fake OpenCode Runtime",
+    };
+    const adapter = {
+      getCapabilities: () => capabilities,
+      startRun: async (input) => {
+        receivedRun = input.run;
+        receivedProjection = input.projection;
 
-      return {
-        events: runtimeEvents([
-          {
-            id: runtimeEventId("rtevt_opencode_runner_started"),
-            runId: input.run.id,
-            roomId: input.run.roomId,
-            targetMemberId: input.run.targetMemberId,
-            sequence: 1,
-            type: "run.started",
-            createdAt: now,
-            runtime,
-            payload: { kind: "run_status", status: "running", message: "started" },
-          },
-        ]),
-      };
-    },
-  } satisfies RuntimeAdapter;
+        return {
+          events: runtimeEvents([
+            {
+              id: runtimeEventId("rtevt_opencode_runner_started"),
+              runId: input.run.id,
+              roomId: input.run.roomId,
+              targetMemberId: input.run.targetMemberId,
+              sequence: 1,
+              type: "run.started",
+              createdAt: now,
+              runtime,
+              payload: { kind: "run_status", status: "running", message: "started" },
+            },
+          ]),
+        };
+      },
+    } satisfies RuntimeAdapter;
 
-  const runner = createOpenCodeRoomHarnessRunner({ container, adapter, now: () => now });
+    const runner = createOpenCodeRoomHarnessRunner({ container, adapter, now: () => now });
 
-  await runner({ room, members, message, targetMember: agent });
+    await runner({ room, members, message, targetMember: agent });
 
-  const runs = container.harnessRunStore.listRunsByRoom(room.id);
-  assert.equal(runs.length, 1);
+    const runs = container.harnessRunStore.listRunsByRoom(room.id);
+    assert.equal(runs.length, 1);
 
-  const run = runs[0];
-  assert.ok(run);
-  assert.match(run.id, /^hrun_/);
-  assert.equal(run.roomId, room.id);
-  assert.equal(run.targetMemberId, agent.id);
-  assert.equal(run.status, "succeeded");
-  assert.equal(run.createdAt, now);
-  assert.equal(run.updatedAt, now);
-  assert.equal(run.startedAt, now);
-  assert.equal(run.completedAt, now);
-  assert.equal(run.triggerMessageId, message.id);
-  assert.equal(run.docIds, undefined);
-  assert.deepEqual(run.runtime, runtime);
+    const run = runs[0];
+    assert.ok(run);
+    assert.match(run.id, /^hrun_/);
+    assert.equal(run.roomId, room.id);
+    assert.equal(run.targetMemberId, agent.id);
+    assert.equal(run.status, "succeeded");
+    assert.equal(run.createdAt, now);
+    assert.equal(run.updatedAt, now);
+    assert.equal(run.startedAt, now);
+    assert.equal(run.completedAt, now);
+    assert.equal(run.triggerMessageId, message.id);
+    assert.equal(run.docIds, undefined);
+    assert.deepEqual(run.runtime, runtime);
 
-  assert.equal(receivedRun?.id, run.id);
-  assert.equal(receivedProjection?.request.roomId, room.id);
-  assert.equal(receivedProjection?.request.memberId, agent.id);
-  assert.equal(receivedProjection?.request.trigger.type, "member_mentioned");
-  assert.deepEqual(
-    receivedProjection?.messages.map((projectedMessage) => projectedMessage.id),
-    [message.id],
-  );
-  assert.deepEqual(receivedProjection?.docs, [doc]);
-  assert.deepEqual(receivedProjection?.docComments, [comment]);
+    assert.equal(receivedRun?.id, run.id);
+    assert.equal(receivedProjection?.request.roomId, room.id);
+    assert.equal(receivedProjection?.request.memberId, agent.id);
+    assert.equal(receivedProjection?.request.trigger.type, "member_mentioned");
+    assert.deepEqual(
+      receivedProjection?.messages.map((projectedMessage) => projectedMessage.id),
+      [message.id],
+    );
+    assert.deepEqual(receivedProjection?.docs, [doc]);
+    assert.deepEqual(receivedProjection?.docComments, [comment]);
 
-  const events = container.harnessRunStore.listEvents(run.id);
-  assert.equal(events.length, 1);
-  assert.equal(events[0]?.id, runtimeEventId("rtevt_opencode_runner_started"));
-  assert.equal(events[0]?.runId, run.id);
-  assert.equal(events[0]?.type, "run.started");
-  assert.deepEqual(events[0]?.runtime, runtime);
-  assert.deepEqual(container.harnessRunStore.getRuntimeSession(runtime.id), runtime);
-  assert.deepEqual(
-    container.messageStore.listMessages(room.id).map((storedMessage) => storedMessage.id),
-    [message.id],
-  );
-  assert.deepEqual(container.eventStore.listAfter(0, 10), []);
-});
+    const events = container.harnessRunStore.listEvents(run.id);
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.id, runtimeEventId("rtevt_opencode_runner_started"));
+    assert.equal(events[0]?.runId, run.id);
+    assert.equal(events[0]?.type, "run.started");
+    assert.deepEqual(events[0]?.runtime, runtime);
+    assert.deepEqual(container.harnessRunStore.getRuntimeSession(runtime.id), runtime);
+    assert.deepEqual(
+      container.messageStore.listMessages(room.id).map((storedMessage) => storedMessage.id),
+      [message.id],
+    );
+    assert.deepEqual(container.eventStore.listAfter(0, 10), []);
+  },
+);
 
 await withOpenCodeRunnerContext(async ({ container, room, members, agent, message }) => {
   const runtime: RuntimeSessionRef = {
@@ -391,6 +393,46 @@ await withOpenCodeRunnerContext(async ({ container, room, members, agent, messag
   assert.equal(messageCreated.createdAt, now);
   assert.deepEqual(messageCreated.payload, { message: toJsonValue(reply) });
   assert.deepEqual(publishedEvents, [messageCreated]);
+});
+
+await withOpenCodeRunnerContext(async ({ container, room, members, agent, message }) => {
+  const adapter = {
+    getCapabilities: () => capabilities,
+    startRun: async () => {
+      throw new Error("opencode unavailable");
+    },
+  } satisfies RuntimeAdapter;
+  const publishedEvents: PersistedDaemonEvent[] = [];
+  const subscription = container.eventBus.subscribe((event) => {
+    publishedEvents.push(event);
+  });
+  const runner = createOpenCodeRoomHarnessRunner({ container, adapter, now: () => now });
+
+  try {
+    await runner({ room, members, message, targetMember: agent });
+  } finally {
+    subscription.unsubscribe();
+  }
+
+  const runs = container.harnessRunStore.listRunsByRoom(room.id);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0]?.status, "failed");
+  assert.equal(runs[0]?.error, "opencode unavailable");
+
+  const messages = container.messageStore.listMessages(room.id);
+  assert.equal(messages.length, 2);
+
+  const reply = messages[1];
+  assert.ok(reply);
+  assert.deepEqual(reply.sender, { kind: "member", memberId: agent.id });
+  assert.equal(reply.text, "LinkA 运行失败：opencode unavailable");
+  assert.deepEqual(reply.replyTo, { messageId: message.id });
+
+  const storedEvents = container.eventStore.listAfter(0, 10);
+  assert.equal(storedEvents.length, 1);
+  assert.equal(storedEvents[0]?.type, "message.created");
+  assert.deepEqual(storedEvents[0]?.payload, { message: toJsonValue(reply) });
+  assert.deepEqual(publishedEvents, storedEvents);
 });
 
 console.log("opencode room runner: ok");

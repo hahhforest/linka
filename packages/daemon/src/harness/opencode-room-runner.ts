@@ -21,12 +21,7 @@ export const DEFAULT_OPENCODE_VARIANT = "xhigh";
 export interface CreateOpenCodeRoomHarnessRunnerOptions {
   readonly container: Pick<
     DaemonContainer,
-    | "roomStore"
-    | "messageStore"
-    | "docStore"
-    | "harnessRunStore"
-    | "eventStore"
-    | "eventBus"
+    "roomStore" | "messageStore" | "docStore" | "harnessRunStore" | "eventStore" | "eventBus"
   >;
   readonly adapter?: RuntimeAdapter;
   readonly now?: () => Date | number;
@@ -58,6 +53,13 @@ const selectLastAdapterOutputText = (events: readonly RuntimeEvent[]): string | 
   }
 
   return outputText;
+};
+
+const formatFailureReplyText = (error: string | undefined): string => {
+  const detail = error?.trim();
+  return detail && detail.length > 0
+    ? `LinkA 运行失败：${detail}`
+    : "LinkA 运行失败，请查看运行状态。";
 };
 
 const publishRoomEvent = (
@@ -110,15 +112,16 @@ const appendOutputMessage = (
     notification: defaultNotificationPolicy,
   });
 
-export const createOpenCodeRoomHarnessRunner = ({
-  container,
-  adapter = new OpenCodeCliRuntimeAdapter({
-    agent: "build",
-    model: DEFAULT_OPENCODE_MODEL,
-    variant: DEFAULT_OPENCODE_VARIANT,
-  }),
-  now,
-}: CreateOpenCodeRoomHarnessRunnerOptions): RoomHarnessRunner =>
+export const createOpenCodeRoomHarnessRunner =
+  ({
+    container,
+    adapter = new OpenCodeCliRuntimeAdapter({
+      agent: "build",
+      model: DEFAULT_OPENCODE_MODEL,
+      variant: DEFAULT_OPENCODE_VARIANT,
+    }),
+    now,
+  }: CreateOpenCodeRoomHarnessRunnerOptions): RoomHarnessRunner =>
   async (input) => {
     const result = await startHarnessRun({
       container,
@@ -128,7 +131,9 @@ export const createOpenCodeRoomHarnessRunner = ({
       triggerMessageId: input.message.id,
       now,
     });
-    const outputText = selectLastAdapterOutputText(result.events);
+    const outputText =
+      selectLastAdapterOutputText(result.events) ??
+      (result.run.status === "failed" ? formatFailureReplyText(result.run.error) : undefined);
 
     if (outputText === undefined) {
       return;
