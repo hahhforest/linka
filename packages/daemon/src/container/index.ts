@@ -6,12 +6,13 @@ import { getDataDir, getProfile, resolvePort } from "@linka/config";
 import { openDatabase, type DatabaseHandle } from "../db/connection.js";
 import { runMigrations } from "../db/migrations.js";
 import { createEventBus, type EventBus } from "../event-bus/index.js";
-import {
-  createAnnouncementStore,
-  type AnnouncementStore,
-} from "../store/announcement-store.js";
+import { createAnnouncementStore, type AnnouncementStore } from "../store/announcement-store.js";
 import { createDocStore, type DocStore } from "../store/doc-store.js";
 import { createEventStore, type EventStore } from "../store/event-store.js";
+import {
+  createContextSnapshotStore,
+  type ContextSnapshotStore,
+} from "../store/context-snapshot-store.js";
 import { createHarnessRunStore, type HarnessRunStore } from "../store/harness-run-store.js";
 import {
   createHarnessSessionStore,
@@ -47,6 +48,7 @@ export interface DaemonContainerOptions {
   announcementStore?: AnnouncementStore;
   harnessRunStore?: HarnessRunStore;
   harnessSessionStore?: HarnessSessionStore;
+  contextSnapshotStore?: ContextSnapshotStore;
 }
 
 export interface DaemonContainer {
@@ -65,6 +67,7 @@ export interface DaemonContainer {
   readonly announcementStore: AnnouncementStore;
   readonly harnessRunStore: HarnessRunStore;
   readonly harnessSessionStore: HarnessSessionStore;
+  readonly contextSnapshotStore: ContextSnapshotStore;
   readonly uptimeMs: () => number;
   readonly close: () => void;
 }
@@ -97,6 +100,11 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
   const harnessRunStore = options.harnessRunStore ?? createMigratedHarnessRunStore(database);
   const harnessSessionStore =
     options.harnessSessionStore ?? createMigratedHarnessSessionStore(database);
+  const contextSnapshotStore =
+    options.contextSnapshotStore ??
+    (database
+      ? createMigratedContextSnapshotStore(database)
+      : createUnavailableContextSnapshotStore());
 
   return {
     profile,
@@ -114,6 +122,7 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
     announcementStore,
     harnessRunStore,
     harnessSessionStore,
+    contextSnapshotStore,
     uptimeMs: () => Math.max(0, now().getTime() - startedAt.getTime()),
     close: () => {
       if (ownsDatabase) {
@@ -210,4 +219,22 @@ function createMigratedHarnessSessionStore(database: DatabaseHandle | null): Har
 
   runMigrations(database);
   return createHarnessSessionStore(database);
+}
+
+function createMigratedContextSnapshotStore(database: DatabaseHandle): ContextSnapshotStore {
+  runMigrations(database);
+  return createContextSnapshotStore(database);
+}
+
+function createUnavailableContextSnapshotStore(): ContextSnapshotStore {
+  const unavailable = (): never => {
+    throw new Error("contextSnapshotStore is required when database is not provided");
+  };
+
+  return {
+    createSnapshot: unavailable,
+    getSnapshot: () => undefined,
+    listSnapshotsByRoom: () => [],
+    listSnapshotsByAgent: () => [],
+  };
 }

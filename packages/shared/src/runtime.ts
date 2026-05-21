@@ -1,5 +1,7 @@
 import type {
   DocId,
+  DocRevisionId,
+  HarnessContextSnapshotId,
   HarnessRunId,
   HarnessSessionId,
   HarnessTriggerId,
@@ -126,6 +128,10 @@ export const HARNESS_RUN_STATUSES = [
   "cancelled",
 ] as const;
 export type HarnessRunStatus = (typeof HARNESS_RUN_STATUSES)[number];
+
+export const HARNESS_CONTEXT_SNAPSHOT_REDACTION_STATES = ["raw", "redacted"] as const;
+export type HarnessContextSnapshotRedactionState =
+  (typeof HARNESS_CONTEXT_SNAPSHOT_REDACTION_STATES)[number];
 
 export const RUNTIME_KINDS = ["opencode", "test"] as const;
 export type RuntimeKind = (typeof RUNTIME_KINDS)[number];
@@ -298,6 +304,23 @@ export interface HarnessRun {
   readonly error?: string;
 }
 
+export interface HarnessContextSnapshot {
+  readonly id: HarnessContextSnapshotId;
+  readonly roomId: RoomId;
+  readonly agentMemberId: RoomMemberId;
+  readonly harnessSessionId?: HarnessSessionId;
+  readonly harnessTriggerId?: HarnessTriggerId;
+  readonly harnessTurnId?: HarnessTurnId;
+  readonly harnessRunId?: HarnessRunId;
+  readonly createdAt: UnixMs;
+  readonly projectionVersion: number;
+  readonly projectionJson: string;
+  readonly sourceMessageIds: readonly RoomMessageId[];
+  readonly sourceDocRevisionIds: readonly DocRevisionId[];
+  readonly tokenEstimate?: number;
+  readonly redactionState: HarnessContextSnapshotRedactionState;
+}
+
 export interface RuntimeRunStatusPayload {
   readonly kind: "run_status";
   readonly status: HarnessRunStatus;
@@ -383,6 +406,11 @@ export const isAgentActivityStatus = (value: unknown): value is AgentActivitySta
 
 export const isHarnessRunStatus = (value: unknown): value is HarnessRunStatus =>
   includesValue(HARNESS_RUN_STATUSES, value);
+
+export const isHarnessContextSnapshotRedactionState = (
+  value: unknown,
+): value is HarnessContextSnapshotRedactionState =>
+  includesValue(HARNESS_CONTEXT_SNAPSHOT_REDACTION_STATES, value);
 
 export const isRuntimeKind = (value: unknown): value is RuntimeKind =>
   includesValue(RUNTIME_KINDS, value);

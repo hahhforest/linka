@@ -302,6 +302,34 @@ CREATE INDEX IF NOT EXISTS idx_announcements_room_updated
   ON announcements (room_id, updated_at);
 `,
   },
+  {
+    version: 8,
+    name: "create_harness_context_snapshots",
+    sql: `
+CREATE TABLE IF NOT EXISTS harness_context_snapshots (
+  harness_context_snapshot_id TEXT PRIMARY KEY,
+  room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  agent_member_id TEXT NOT NULL REFERENCES room_members(member_id),
+  harness_session_id TEXT REFERENCES harness_sessions(harness_session_id) ON DELETE SET NULL,
+  harness_trigger_id TEXT REFERENCES harness_triggers(harness_trigger_id) ON DELETE SET NULL,
+  harness_turn_id TEXT,
+  harness_run_id TEXT REFERENCES harness_runs(harness_run_id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL,
+  projection_version INTEGER NOT NULL,
+  projection_json TEXT NOT NULL,
+  source_message_ids_json TEXT NOT NULL,
+  source_doc_revision_ids_json TEXT NOT NULL,
+  token_estimate INTEGER,
+  redaction_state TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_harness_context_snapshots_room_created
+  ON harness_context_snapshots (room_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_harness_context_snapshots_agent_created
+  ON harness_context_snapshots (agent_member_id, created_at);
+`,
+  },
 ];
 
 export const runMigrations = (handle: DatabaseHandle): MigrationResult => {

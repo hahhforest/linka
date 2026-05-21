@@ -4,6 +4,7 @@ import type { RuntimeAdapter } from "@linka/harness";
 import {
   docCommentId,
   harnessRunId,
+  docRevisionId,
   docId,
   participantId,
   roomId,
@@ -13,6 +14,7 @@ import {
   runtimeSessionId,
   type Doc,
   type DocComment,
+  type DocRevision,
   type HarnessProjection,
   type HarnessRun,
   type PermissionPolicy,
@@ -29,6 +31,7 @@ import {
 import { openDatabase, type DatabaseHandle } from "../db/connection.js";
 import { runMigrations } from "../db/migrations.js";
 import { createDocStore } from "../store/doc-store.js";
+import { createContextSnapshotStore } from "../store/context-snapshot-store.js";
 import { createHarnessRunStore } from "../store/harness-run-store.js";
 import { createMessageStore } from "../store/message-store.js";
 import { createRoomStore } from "../store/room-store.js";
@@ -72,6 +75,7 @@ interface RunServiceContext {
   readonly agent: RoomMember;
   readonly message: RoomMessage;
   readonly doc: Doc;
+  readonly revision: DocRevision;
   readonly comment: DocComment;
 }
 
@@ -116,6 +120,20 @@ const makeDoc = (owner: RoomMember): Doc => ({
   visibility: roomVisibility,
 });
 
+const makeRevision = (doc: Doc, owner: RoomMember): DocRevision => ({
+  id: docRevisionId("drev_service_brief_1"),
+  docId: doc.id,
+  contextRoomId: doc.contextRoomId,
+  revisionNumber: 1,
+  format: "markdown",
+  status: "committed",
+  body: doc.body,
+  title: doc.title,
+  createdAt: now,
+  createdByMemberId: owner.id,
+  summary: "initial service brief",
+});
+
 const makeComment = (doc: Doc, owner: RoomMember, agent: RoomMember): DocComment => ({
   id: docCommentId("dcmt_service_brief"),
   docId: doc.id,
@@ -147,7 +165,8 @@ const withRunServiceContext = async (
     const messageStore = createMessageStore(handle);
     const docStore = createDocStore(handle);
     const harnessRunStore = createHarnessRunStore(handle);
-    const container = { roomStore, messageStore, docStore, harnessRunStore };
+    const contextSnapshotStore = createContextSnapshotStore(handle);
+    const container = { roomStore, messageStore, docStore, harnessRunStore, contextSnapshotStore };
     const room = roomStore.createRoom(makeRoom());
     const human = roomStore.addMember(makeMember("human", "human", "owner"));
     const agent = roomStore.addMember(makeMember("agent", "agent", "member"));
@@ -162,18 +181,22 @@ const withRunServiceContext = async (
       visibility: roomVisibility,
       notification: notificationPolicy,
     });
-    const doc = docStore.createDoc(makeDoc(human));
+    const createdDoc = docStore.createDoc(makeDoc(human));
+    const revision = docStore.createRevision(makeRevision(createdDoc, human));
+    const doc = docStore.getDoc(createdDoc.id);
+    assert.ok(doc);
     const comment = docStore.createComment(makeComment(doc, human, agent));
 
-    await run({ handle, container, room, human, agent, message, doc, comment });
+    await run({ handle, container, room, human, agent, message, doc, revision, comment });
   } finally {
     handle.close();
   }
 };
 
-await withRunServiceContext(async ({ container, room, agent, message, doc, comment }) => {
+await withRunServiceContext(async ({ container, room, agent, message, doc, revision, comment }) => {
   let receivedRun: HarnessRun | undefined;
   let receivedProjection: HarnessProjection | undefined;
+  let snapshotSeenBeforeAdapter = false;
   const runtime: RuntimeSessionRef = {
     id: runtimeSessionId("rsess_run_service_fake"),
     kind: "test",
@@ -185,6 +208,20 @@ await withRunServiceContext(async ({ container, room, agent, message, doc, comme
     startRun: async (input) => {
       receivedRun = input.run;
       receivedProjection = input.projection;
+      const snapshots = container.contextSnapshotStore.listSnapshotsByRoom(input.run.roomId);
+      assert.equal(snapshots.length, 1);
+      const snapshot = snapshots[0];
+      assert.ok(snapshot);
+      snapshotSeenBeforeAdapter = true;
+      assert.equal(snapshot.roomId, room.id);
+      assert.equal(snapshot.agentMemberId, agent.id);
+      assert.equal(snapshot.harnessRunId, input.run.id);
+      assert.equal(snapshot.createdAt, now);
+      assert.equal(snapshot.projectionVersion, 1);
+      assert.equal(snapshot.projectionJson, JSON.stringify(input.projection));
+      assert.deepEqual(snapshot.sourceMessageIds, [message.id]);
+      assert.deepEqual(snapshot.sourceDocRevisionIds, [revision.id]);
+      assert.equal(snapshot.redactionState, "raw");
 
       return {
         events: runtimeEvents([
@@ -242,6 +279,14 @@ await withRunServiceContext(async ({ container, room, agent, message, doc, comme
   assert.deepEqual(result.run.runtime, runtime);
   assert.equal(result.run.summary, "read docs and room context");
   assert.deepEqual(container.harnessRunStore.getRun(result.run.id), result.run);
+  assert.equal(snapshotSeenBeforeAdapter, true);
+  assert.equal(result.snapshot.roomId, room.id);
+  assert.equal(result.snapshot.agentMemberId, agent.id);
+  assert.equal(result.snapshot.harnessRunId, result.run.id);
+  assert.equal(result.snapshot.projectionJson, JSON.stringify(receivedProjection));
+  assert.deepEqual(result.snapshot.sourceMessageIds, [message.id]);
+  assert.deepEqual(result.snapshot.sourceDocRevisionIds, [revision.id]);
+  assert.deepEqual(container.contextSnapshotStore.getSnapshot(result.snapshot.id), result.snapshot);
 
   assert.equal(receivedRun?.id, result.run.id);
   assert.equal(receivedRun?.status, "running");

@@ -46,7 +46,7 @@ const handle = openDatabase({ databasePath: ":memory:" });
 
 try {
   const firstRun = runMigrations(handle);
-  assert.deepEqual(firstRun.appliedVersions, [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(firstRun.appliedVersions, [1, 2, 3, 4, 5, 6, 7, 8]);
 
   const secondRun = runMigrations(handle);
   assert.deepEqual(secondRun.appliedVersions, []);
@@ -54,7 +54,7 @@ try {
   const migrationCount = handle.database
     .prepare("SELECT COUNT(*) AS count FROM linka_migrations")
     .get() as { count: number };
-  assert.equal(migrationCount.count, 7);
+  assert.equal(migrationCount.count, 8);
 
   for (const tableName of [
     "daemon_events",
@@ -70,6 +70,7 @@ try {
     "harness_sessions",
     "harness_triggers",
     "announcements",
+    "harness_context_snapshots",
   ]) {
     assert.equal(hasTable(handle, tableName), true, tableName);
   }
@@ -94,6 +95,8 @@ try {
     "idx_harness_triggers_session_created",
     "idx_harness_triggers_room_status_created",
     "idx_announcements_room_updated",
+    "idx_harness_context_snapshots_room_created",
+    "idx_harness_context_snapshots_agent_created",
   ]) {
     assert.equal(hasIndex(handle, indexName), true, indexName);
   }
@@ -241,6 +244,23 @@ try {
     "updated_at",
     "created_by_member_id",
     "visibility_json",
+  ]);
+
+  assertColumns(handle, "harness_context_snapshots", [
+    "harness_context_snapshot_id",
+    "room_id",
+    "agent_member_id",
+    "harness_session_id",
+    "harness_trigger_id",
+    "harness_turn_id",
+    "harness_run_id",
+    "created_at",
+    "projection_version",
+    "projection_json",
+    "source_message_ids_json",
+    "source_doc_revision_ids_json",
+    "token_estimate",
+    "redaction_state",
   ]);
 
   console.log("daemon db migrations: ok");

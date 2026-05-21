@@ -13,9 +13,12 @@ import {
   type RoomNotificationPolicy,
   type RoomVisibility,
   type RuntimeEvent,
+  type HarnessContextSnapshot,
   type AgentParticipationPolicy,
   type HarnessSessionId,
+  type HarnessTriggerId,
   type RuntimeSessionRef,
+  type RoomMessageTrace,
   type UnixMs,
 } from "@linka/shared";
 
@@ -36,6 +39,7 @@ export interface CreateOpenCodeRoomHarnessRunnerOptions {
     | "docStore"
     | "harnessRunStore"
     | "harnessSessionStore"
+    | "contextSnapshotStore"
     | "eventStore"
     | "eventBus"
   >;
@@ -143,6 +147,7 @@ const appendOutputMessage = (
   container: CreateOpenCodeRoomHarnessRunnerOptions["container"],
   input: RoomHarnessRunnerInput,
   text: string,
+  trace: RoomMessageTrace,
   createdAt: UnixMs,
 ): RoomMessage =>
   container.messageStore.appendMessage({
@@ -153,9 +158,26 @@ const appendOutputMessage = (
     createdAt,
     text,
     replyTo: { messageId: input.message.id },
+    trace,
     visibility: defaultVisibility,
     notification: defaultNotificationPolicy,
   });
+
+const buildOutputTrace = (
+  result: Awaited<ReturnType<typeof startHarnessRun>>,
+  snapshot: HarnessContextSnapshot,
+  sessionId: HarnessSessionId,
+  triggerId: HarnessTriggerId,
+): RoomMessageTrace => ({
+  harnessSessionId: sessionId,
+  harnessTriggerId: triggerId,
+  harnessRunId: result.run.id,
+  ...(result.run.runtime === undefined ? {} : { runtimeSessionId: result.run.runtime.id }),
+  projectionSnapshotId: snapshot.id,
+  sourceMessageIds: snapshot.sourceMessageIds,
+  visibleMessageIds: snapshot.sourceMessageIds,
+  visibleDocRevisionIds: snapshot.sourceDocRevisionIds,
+});
 
 const defaultPolicy: AgentParticipationPolicy = {
   triggerMode: "mention_only",
@@ -194,7 +216,7 @@ export const createOpenCodeRoomHarnessRunner = ({
       policy,
     );
     const triggeredAt = readNow(now);
-    container.harnessSessionStore.createTrigger({
+    const trigger = container.harnessSessionStore.createTrigger({
       id: createHarnessTriggerApiId(),
       sessionId: session.id,
       roomId: input.room.id,
@@ -226,7 +248,13 @@ export const createOpenCodeRoomHarnessRunner = ({
     }
 
     const createdAt = readNow(now);
-    const message = appendOutputMessage(container, input, outputText, createdAt);
+    const message = appendOutputMessage(
+      container,
+      input,
+      outputText,
+      buildOutputTrace(result, result.snapshot, session.id, trigger.id),
+      createdAt,
+    );
     publishMessageCreated(container, input.room.id, message, createdAt);
   };
 };

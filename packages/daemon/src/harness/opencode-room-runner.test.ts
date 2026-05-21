@@ -4,6 +4,7 @@ import type { RuntimeAdapter } from "@linka/harness";
 import {
   docCommentId,
   docId,
+  docRevisionId,
   participantId,
   roomId,
   roomMemberId,
@@ -12,6 +13,7 @@ import {
   runtimeSessionId,
   type Doc,
   type DocComment,
+  type DocRevision,
   type HarnessProjection,
   type HarnessRun,
   type PermissionPolicy,
@@ -29,6 +31,7 @@ import { openDatabase, type DatabaseHandle } from "../db/connection.js";
 import { runMigrations } from "../db/migrations.js";
 import { createEventBus } from "../event-bus/index.js";
 import { createDocStore } from "../store/doc-store.js";
+import { createContextSnapshotStore } from "../store/context-snapshot-store.js";
 import { createEventStore, type PersistedDaemonEvent } from "../store/event-store.js";
 import { createHarnessRunStore } from "../store/harness-run-store.js";
 import { createHarnessSessionStore } from "../store/harness-session-store.js";
@@ -83,6 +86,7 @@ interface OpenCodeRunnerContext {
   readonly agent: RoomMember;
   readonly message: RoomMessage;
   readonly doc: Doc;
+  readonly revision: DocRevision;
   readonly comment: DocComment;
 }
 
@@ -127,6 +131,20 @@ const makeDoc = (owner: RoomMember): Doc => ({
   visibility: roomVisibility,
 });
 
+const makeRevision = (doc: Doc, owner: RoomMember): DocRevision => ({
+  id: docRevisionId("drev_opencode_brief_1"),
+  docId: doc.id,
+  contextRoomId: doc.contextRoomId,
+  revisionNumber: 1,
+  format: "markdown",
+  status: "committed",
+  body: doc.body,
+  title: doc.title,
+  createdAt: now,
+  createdByMemberId: owner.id,
+  summary: "initial opencode brief",
+});
+
 const makeComment = (doc: Doc, owner: RoomMember, agent: RoomMember): DocComment => ({
   id: docCommentId("dcmt_opencode_brief"),
   docId: doc.id,
@@ -163,6 +181,7 @@ const withOpenCodeRunnerContext = async (
     const docStore = createDocStore(handle);
     const harnessRunStore = createHarnessRunStore(handle);
     const harnessSessionStore = createHarnessSessionStore(handle);
+    const contextSnapshotStore = createContextSnapshotStore(handle);
     const container = {
       eventStore,
       eventBus,
@@ -171,6 +190,7 @@ const withOpenCodeRunnerContext = async (
       docStore,
       harnessRunStore,
       harnessSessionStore,
+      contextSnapshotStore,
     };
     const room = roomStore.createRoom(makeRoom());
     const human = roomStore.addMember(makeMember("human", "human", "owner"));
@@ -187,10 +207,13 @@ const withOpenCodeRunnerContext = async (
       visibility: roomVisibility,
       notification: notificationPolicy,
     });
-    const doc = docStore.createDoc(makeDoc(human));
+    const createdDoc = docStore.createDoc(makeDoc(human));
+    const revision = docStore.createRevision(makeRevision(createdDoc, human));
+    const doc = docStore.getDoc(createdDoc.id);
+    assert.ok(doc);
     const comment = docStore.createComment(makeComment(doc, human, agent));
 
-    await run({ handle, container, room, members, human, agent, message, doc, comment });
+    await run({ handle, container, room, members, human, agent, message, doc, revision, comment });
   } finally {
     handle.close();
   }
@@ -445,7 +468,7 @@ await withOpenCodeRunnerContext(async ({ container, room, members, human, agent,
     ["isolated-adapter-session-0", "isolated-adapter-session-1"],
   );
 });
-await withOpenCodeRunnerContext(async ({ container, room, members, agent, message }) => {
+await withOpenCodeRunnerContext(async ({ container, room, members, agent, message, revision }) => {
   const runtime: RuntimeSessionRef = {
     id: runtimeSessionId("rsess_opencode_runner_output"),
     kind: "test",
@@ -543,6 +566,18 @@ await withOpenCodeRunnerContext(async ({ container, room, members, agent, messag
   assert.equal(runs[0]?.status, "succeeded");
   assert.equal(runs[0]?.completedAt, now);
   assert.equal(runs[0]?.summary, "final OpenCode answer");
+  const session = container.harnessSessionStore.listSessionsByRoom(room.id)[0];
+  assert.ok(session);
+  const trigger = container.harnessSessionStore.listTriggersBySession(session.id)[0];
+  assert.ok(trigger);
+
+  const snapshots = container.contextSnapshotStore.listSnapshotsByRoom(room.id);
+  assert.equal(snapshots.length, 1);
+  const snapshot = snapshots[0];
+  assert.ok(snapshot);
+  assert.equal(snapshot.harnessRunId, runs[0]?.id);
+  assert.deepEqual(snapshot.sourceMessageIds, [message.id]);
+  assert.deepEqual(snapshot.sourceDocRevisionIds, [revision.id]);
 
   const messages = container.messageStore.listMessages(room.id);
   assert.equal(messages.length, 2);
@@ -557,6 +592,16 @@ await withOpenCodeRunnerContext(async ({ container, room, members, agent, messag
   assert.equal(reply.createdAt, now);
   assert.equal(reply.text, "final OpenCode answer");
   assert.deepEqual(reply.replyTo, { messageId: message.id });
+  assert.deepEqual(reply.trace, {
+    harnessSessionId: session.id,
+    harnessTriggerId: trigger.id,
+    harnessRunId: runs[0]?.id,
+    runtimeSessionId: runtime.id,
+    projectionSnapshotId: snapshot.id,
+    sourceMessageIds: [message.id],
+    visibleMessageIds: [message.id],
+    visibleDocRevisionIds: [revision.id],
+  });
   assert.deepEqual(reply.visibility, roomVisibility);
   assert.deepEqual(reply.notification, notificationPolicy);
 

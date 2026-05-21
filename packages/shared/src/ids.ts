@@ -16,6 +16,7 @@ export type HarnessSessionId = Brand<string, "HarnessSessionId">;
 export type HarnessTurnId = Brand<string, "HarnessTurnId">;
 export type HarnessTriggerId = Brand<string, "HarnessTriggerId">;
 export type HarnessRunId = Brand<string, "HarnessRunId">;
+export type HarnessContextSnapshotId = Brand<string, "HarnessContextSnapshotId">;
 export type RuntimeProcessId = Brand<string, "RuntimeProcessId">;
 export type RuntimeSessionId = Brand<string, "RuntimeSessionId">;
 export type PendingInteractionId = Brand<string, "PendingInteractionId">;
@@ -38,6 +39,7 @@ export const ID_PREFIXES = {
   harnessTurn: "hturn_",
   harnessTrigger: "htrig_",
   harnessRun: "hrun_",
+  harnessContextSnapshot: "hctx_",
   runtimeProcess: "rproc_",
   runtimeSession: "rsess_",
   pendingInteraction: "pint_",
@@ -78,13 +80,15 @@ type IdOf<Key extends IdPrefixKey> = Key extends "room"
                               ? HarnessTriggerId
                               : Key extends "harnessRun"
                                 ? HarnessRunId
-                                : Key extends "runtimeProcess"
-                                  ? RuntimeProcessId
-                                  : Key extends "runtimeSession"
-                                    ? RuntimeSessionId
-                                    : Key extends "pendingInteraction"
-                                      ? PendingInteractionId
-                                      : RuntimeEventId;
+                                : Key extends "harnessContextSnapshot"
+                                  ? HarnessContextSnapshotId
+                                  : Key extends "runtimeProcess"
+                                    ? RuntimeProcessId
+                                    : Key extends "runtimeSession"
+                                      ? RuntimeSessionId
+                                      : Key extends "pendingInteraction"
+                                        ? PendingInteractionId
+                                        : RuntimeEventId;
 
 const ID_SUFFIX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
@@ -222,6 +226,14 @@ export const parseHarnessRunId = (value: unknown): HarnessRunId | undefined =>
   parsePrefixedId(value, "harnessRun");
 export const harnessRunId = (value: string): HarnessRunId =>
   toPrefixedId(value, "harnessRun", "HarnessRunId");
+
+export const isHarnessContextSnapshotId = (value: unknown): value is HarnessContextSnapshotId =>
+  isPrefixedId(value, "harnessContextSnapshot");
+export const parseHarnessContextSnapshotId = (
+  value: unknown,
+): HarnessContextSnapshotId | undefined => parsePrefixedId(value, "harnessContextSnapshot");
+export const harnessContextSnapshotId = (value: string): HarnessContextSnapshotId =>
+  toPrefixedId(value, "harnessContextSnapshot", "HarnessContextSnapshotId");
 
 export const isRuntimeProcessId = (value: unknown): value is RuntimeProcessId =>
   isPrefixedId(value, "runtimeProcess");

@@ -1,10 +1,13 @@
 import type { RuntimeAdapter } from "@linka/harness";
 import {
+  harnessContextSnapshotId,
   harnessRunId,
   runtimeEventId,
   unixMs,
   type Doc,
   type DocId,
+  type DocRevisionId,
+  type HarnessContextSnapshot,
   type HarnessRun,
   type RuntimeEvent,
   type RuntimeSessionRef,
@@ -21,7 +24,7 @@ import { createHarnessProjection } from "./projection.js";
 export interface StartHarnessRunInput {
   readonly container: Pick<
     DaemonContainer,
-    "roomStore" | "messageStore" | "docStore" | "harnessRunStore"
+    "roomStore" | "messageStore" | "docStore" | "harnessRunStore" | "contextSnapshotStore"
   >;
   readonly adapter: RuntimeAdapter;
   readonly roomId: Room["id"];
@@ -34,10 +37,13 @@ export interface StartHarnessRunInput {
 
 export interface StartHarnessRunResult {
   readonly run: HarnessRun;
+  readonly snapshot: HarnessContextSnapshot;
   readonly events: readonly RuntimeEvent[];
 }
 
 const createRunId = (): HarnessRun["id"] => harnessRunId(`hrun_${crypto.randomUUID()}`);
+const createContextSnapshotId = (): HarnessContextSnapshot["id"] =>
+  harnessContextSnapshotId(`hctx_${crypto.randomUUID()}`);
 const createRuntimeEventId = (): RuntimeEvent["id"] =>
   runtimeEventId(`rtevt_${crypto.randomUUID()}`);
 
@@ -77,6 +83,39 @@ const appendRuntimeEvent = (store: HarnessRunStore, event: RuntimeEvent): Runtim
   ensureRuntimeSession(store, event.runtime);
   return store.appendEvent(event);
 };
+
+const selectCurrentDocRevisionIds = (docs: readonly Doc[]): readonly DocRevisionId[] =>
+  docs.flatMap((doc) => (doc.currentRevisionId === undefined ? [] : [doc.currentRevisionId]));
+
+const stringifyProjection = (projection: ReturnType<typeof createHarnessProjection>): string => {
+  const projectionJson = JSON.stringify(projection);
+  if (projectionJson === undefined) {
+    throw new Error("harness projection must be JSON-serializable");
+  }
+
+  return projectionJson;
+};
+
+const createContextSnapshot = ({
+  run,
+  projection,
+  createdAt,
+}: {
+  readonly run: HarnessRun;
+  readonly projection: ReturnType<typeof createHarnessProjection>;
+  readonly createdAt: UnixMs;
+}): HarnessContextSnapshot => ({
+  id: createContextSnapshotId(),
+  roomId: run.roomId,
+  agentMemberId: run.targetMemberId,
+  harnessRunId: run.id,
+  createdAt,
+  projectionVersion: 1,
+  projectionJson: stringifyProjection(projection),
+  sourceMessageIds: projection.messages.map((message) => message.id),
+  sourceDocRevisionIds: selectCurrentDocRevisionIds(projection.docs),
+  redactionState: "raw",
+});
 
 const readDocs = (
   container: StartHarnessRunInput["container"],
@@ -261,6 +300,9 @@ export const startHarnessRun = async ({
     ...(triggerMessageId === undefined ? {} : { triggerMessageId }),
     ...(docIds === undefined ? {} : { docIds }),
   });
+  const snapshot = container.contextSnapshotStore.createSnapshot(
+    createContextSnapshot({ run, projection, createdAt }),
+  );
   const events: RuntimeEvent[] = [];
 
   try {
@@ -291,5 +333,5 @@ export const startHarnessRun = async ({
 
   const finalRun = completeHarnessRun(container.harnessRunStore, run, events, readNow(now));
 
-  return { run: finalRun, events };
+  return { run: finalRun, snapshot, events };
 };
