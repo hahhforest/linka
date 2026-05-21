@@ -23,11 +23,12 @@ const formatVersionTime = (timestamp: number): string =>
     minute: "2-digit",
   }).format(new Date(timestamp));
 
-const getDocFirstLine = (doc: Doc): string =>
+const getDocPreviewLines = (doc: Doc): readonly string[] =>
   doc.body
     .split(/\r?\n/u)
     .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? "空白文档";
+    .filter((line) => line.length > 0)
+    .slice(0, 8);
 
 const getRunSummary = (
   run: HarnessRun | undefined,
@@ -64,61 +65,83 @@ const DocWorkspace = ({
   const runTarget = latestRun
     ? members.find((member) => member.id === latestRun.targetMemberId)?.displayName
     : undefined;
+  const previewLines = activeDoc ? getDocPreviewLines(activeDoc) : [];
 
   return (
-    <section className="grid min-h-[260px] border-t border-line bg-[#fffdf8] lg:grid-cols-[minmax(0,1.35fr)_320px_220px]">
-      <div className="min-w-0 p-4 sm:p-5">
-        <div className="flex flex-wrap items-center gap-2 border-b border-line pb-3">
-          <p className="font-mono text-xs uppercase text-linka">Doc</p>
-          <h2 className="text-base font-semibold">{activeDoc?.title ?? "任务 Doc"}</h2>
-          <span className="rounded-md border border-line bg-paper px-2 py-0.5 font-mono text-xs text-muted">
+    <section className="grid min-h-[280px] border-t border-line bg-panel/88 lg:grid-cols-[minmax(0,1.35fr)_300px_220px]">
+      <div className="min-w-0 p-3 sm:p-4">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line pb-2">
+          <p className="font-mono text-[11px] uppercase text-linka">Doc</p>
+          <h2 className="min-w-0 truncate text-base font-semibold">
+            {activeDoc?.title ?? "任务 Doc"}
+          </h2>
+          <span className="rounded-md border border-linka/25 bg-[#f0ecff] px-2 py-0.5 font-mono text-[11px] text-linka">
             编辑
           </span>
-          <span className="rounded-md border border-line bg-paper px-2 py-0.5 font-mono text-xs text-muted">
+          <span className="rounded-md border border-line bg-[#fbf7ed] px-2 py-0.5 font-mono text-[11px] text-muted">
             评论
           </span>
-          <span className="rounded-md border border-line bg-paper px-2 py-0.5 font-mono text-xs text-muted">
+          <span className="rounded-md border border-line bg-[#fbf7ed] px-2 py-0.5 font-mono text-[11px] text-muted">
             历史版本
           </span>
         </div>
+
         {activeDoc ? (
-          <article className="mt-4 max-w-3xl text-sm leading-7 text-ink">
-            <h3 className="text-base font-semibold">1. 任务目标</h3>
-            <p className="mt-2 whitespace-pre-wrap break-words text-muted">
-              {getDocFirstLine(activeDoc)}
-            </p>
-            <h3 className="mt-5 text-base font-semibold">2. LinkA 上下文</h3>
-            <p className="mt-2 text-muted">
-              该 Doc 会作为 Room 同级上下文进入 Harness projection。
-            </p>
+          <article className="mt-3 max-w-3xl text-sm leading-6 text-ink">
+            {previewLines.map((line, index) => {
+              if (/^#{1,3}\s/u.test(line) || /^\d+\.\s/u.test(line)) {
+                return (
+                  <h3 key={`${activeDoc.id}-${index}`} className="mt-3 text-sm font-semibold">
+                    {line.replace(/^#{1,3}\s/u, "")}
+                  </h3>
+                );
+              }
+
+              return (
+                <p key={`${activeDoc.id}-${index}`} className="mt-2 break-words text-sm text-muted">
+                  {line}
+                </p>
+              );
+            })}
           </article>
         ) : (
-          <div className="mt-4 rounded-lg border border-dashed border-line bg-paper/70 p-4 text-sm text-muted">
-            右侧新建 Doc/ToDo 后，会在这里形成可交给 LinkA 的任务上下文。
+          <div className="mt-3 rounded-md border border-dashed border-line bg-[#fbf7ed] p-4 text-sm text-muted">
+            新建 Doc 后，这里会显示 Room 同级上下文。
           </div>
         )}
       </div>
 
-      <aside className="border-t border-line p-4 lg:border-l lg:border-t-0">
-        <h3 className="text-sm font-semibold">评论</h3>
+      <aside className="border-t border-line p-3 lg:border-l lg:border-t-0">
+        <div className="flex items-center justify-between gap-2 border-b border-line pb-2">
+          <h3 className="text-sm font-semibold">评论</h3>
+          <span className="font-mono text-[11px] text-muted">thread</span>
+        </div>
         <div className="mt-3 grid gap-2">
-          <div className="rounded-lg border border-line bg-panel p-3 text-sm text-muted">
-            {runTarget ?? "LinkA"}: {getRunSummary(latestRun, runtimeEventsByRunId)}
+          <div className="rounded-md border border-line bg-[#fbf7ed] p-2.5 text-xs leading-5 text-muted shadow-sketch">
+            <span className="font-semibold text-ink">{runTarget ?? "LinkA"}：</span>
+            {getRunSummary(latestRun, runtimeEventsByRunId)}
           </div>
-          <div className="rounded-lg border border-line bg-panel p-3 text-sm text-muted">
-            Alice: 需要时可继续在 Room 中插话纠偏。
+          <div className="rounded-md border border-line bg-[#fbf7ed] p-2.5 text-xs leading-5 text-muted shadow-sketch">
+            <span className="font-semibold text-ink">Alice：</span>
+            需要时继续在 Room 中插话纠偏。
           </div>
         </div>
       </aside>
 
-      <aside className="border-t border-line p-4 lg:border-l lg:border-t-0">
-        <h3 className="text-sm font-semibold">版本历史</h3>
+      <aside className="border-t border-line p-3 lg:border-l lg:border-t-0">
+        <div className="flex items-center justify-between gap-2 border-b border-line pb-2">
+          <h3 className="text-sm font-semibold">版本历史</h3>
+          <span className="font-mono text-[11px] text-muted">v{docs.length || 0}</span>
+        </div>
         <div className="mt-3 grid gap-2">
           {docs.slice(0, 4).map((doc, index) => (
-            <div key={doc.id} className="rounded-lg border border-line bg-panel p-3">
-              <p className="font-mono text-xs text-linka">v{docs.length - index}</p>
+            <div
+              key={doc.id}
+              className="rounded-md border border-line bg-[#fbf7ed] p-2.5 shadow-sketch"
+            >
+              <p className="font-mono text-[11px] text-linka">v{docs.length - index}</p>
               <p className="mt-1 truncate text-sm font-medium">{doc.title}</p>
-              <p className="mt-1 font-mono text-xs text-muted">
+              <p className="mt-1 font-mono text-[11px] text-muted">
                 {formatVersionTime(doc.updatedAt)}
               </p>
             </div>
@@ -159,54 +182,67 @@ export const RoomWorkspace = () => {
   const offlineMessage = roomErrorMessage ?? connectionErrorMessage ?? "正在检查 /linka/health";
 
   return (
-    <div className="min-h-screen bg-paper text-ink">
-      <div className="mx-auto grid min-h-screen max-w-[1480px] border-x border-line bg-[#fbf8f0] shadow-rail lg:grid-cols-[300px_minmax(0,1fr)]">
+    <div className="min-h-screen bg-paper px-2 py-2 text-ink sm:px-4 sm:py-4">
+      <div className="mx-auto grid min-h-[calc(100vh-16px)] max-w-[1540px] overflow-hidden rounded-md border border-line bg-[#fbf6eb]/94 shadow-rail lg:min-h-[calc(100vh-32px)] lg:grid-cols-[268px_minmax(0,1fr)]">
         <RoomNav />
-        <div className="flex min-w-0 flex-col">
+        <div className="flex min-w-0 flex-col lg:min-h-0">
           <ConnectionBar />
           {status !== "online" || source === "fallback" ? (
-            <div className="border-b border-line bg-[#fff3d8] px-4 py-2 text-sm text-caution sm:px-5">
+            <div className="border-b border-line bg-[#fff3d8] px-4 py-2 text-sm text-caution">
               Daemon 未连接：{offlineMessage}。Demo room 仍可浏览。
             </div>
           ) : null}
-          <div className="grid min-h-[calc(100vh-350px)] min-w-0 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <main className="flex min-w-0 flex-col border-line bg-panel/70 lg:border-r">
-              <div className="border-b border-line px-4 py-4 sm:px-6">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-mono text-xs uppercase text-linka">room workspace</p>
-                  {isLoading ? <span className="font-mono text-xs text-muted">loading</span> : null}
-                  <span className="text-lg text-[#d6a84f]">★</span>
-                </div>
-                <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
-                  <div className="min-w-0">
-                    <h1 className="truncate text-xl font-semibold leading-tight sm:text-2xl">
-                      {room.displayName}
-                    </h1>
-                    {room.topic ? (
-                      <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">{room.topic}</p>
+          <div className="grid min-h-0 flex-1 lg:grid-rows-[minmax(0,1fr)_minmax(270px,34vh)]">
+            <div className="grid min-h-[620px] min-w-0 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_300px]">
+              <main className="paper-panel flex min-w-0 flex-col border-line lg:border-r">
+                <div className="border-b border-line px-3 py-3 sm:px-5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-mono text-[11px] uppercase text-linka">room workspace</p>
+                    {isLoading ? (
+                      <span className="font-mono text-[11px] text-muted">loading</span>
                     ) : null}
+                    <span className="text-sm text-[#d6a84f]">★</span>
                   </div>
-                  <div className="flex flex-wrap gap-2 font-mono text-xs text-muted">
-                    <span className="rounded-md border border-line bg-paper px-2 py-1">聊天</span>
-                    <span className="rounded-md border border-line bg-paper px-2 py-1">
-                      Docs {docs.length}
-                    </span>
-                    <span className="rounded-md border border-line bg-paper px-2 py-1">文件</span>
-                    <span className="rounded-md border border-line bg-paper px-2 py-1">设置</span>
+                  <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+                    <div className="min-w-0">
+                      <h1 className="truncate text-xl font-semibold leading-tight sm:text-2xl">
+                        {room.displayName}
+                      </h1>
+                      {room.topic ? (
+                        <p className="mt-1 max-w-3xl text-sm leading-5 text-muted">{room.topic}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 text-xs text-muted">
+                      <span className="rounded-md border border-linka/25 bg-[#f0ecff] px-2 py-1 font-semibold text-linka">
+                        聊天
+                      </span>
+                      <span className="rounded-md border border-line bg-[#fbf7ed] px-2 py-1">
+                        Docs {docs.length}
+                      </span>
+                      <span className="rounded-md border border-line bg-[#fbf7ed] px-2 py-1">
+                        文件
+                      </span>
+                      <span className="rounded-md border border-line bg-[#fbf7ed] px-2 py-1">
+                        公告
+                      </span>
+                      <span className="rounded-md border border-line bg-[#fbf7ed] px-2 py-1">
+                        设置
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <Timeline messages={messages} members={members} />
-              <Composer source={source} />
-            </main>
-            <MemberRail />
+                <Timeline messages={messages} members={members} />
+                <Composer source={source} />
+              </main>
+              <MemberRail />
+            </div>
+            <DocWorkspace
+              docs={docs}
+              runs={runs}
+              members={members}
+              runtimeEventsByRunId={runtimeEventsByRunId}
+            />
           </div>
-          <DocWorkspace
-            docs={docs}
-            runs={runs}
-            members={members}
-            runtimeEventsByRunId={runtimeEventsByRunId}
-          />
         </div>
       </div>
     </div>

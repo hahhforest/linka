@@ -32,34 +32,37 @@ export const Composer = ({ source }: ComposerProps) => {
   const submitLabel = source === "api" ? "发送" : "本地暂存";
 
   return (
-    <section className="border-t border-line bg-[#fffdf8] px-4 py-4 sm:px-6">
+    <section className="border-t border-line bg-panel/95 px-3 py-3 sm:px-5">
       {localNote ? (
-        <p className="mb-3 rounded-md border border-line bg-paper px-3 py-2 text-sm text-muted">
+        <p className="mb-2 rounded-md border border-line bg-[#fbf7ed] px-3 py-2 text-xs text-muted">
           本地草稿：{localNote}
         </p>
       ) : null}
       {errorMessage ? (
-        <p className="mb-3 rounded-md border border-[#a34032]/30 bg-[#f3ddd9] px-3 py-2 text-sm text-caution">
+        <p className="mb-2 rounded-md border border-danger/30 bg-[#fae8e2] px-3 py-2 text-xs text-danger">
           {errorMessage}
         </p>
       ) : null}
-      {agentMembers.length > 0 ? (
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <span className="font-mono text-xs text-muted">mention</span>
-          {agentMembers.map((member) => (
-            <button
-              key={member.id}
-              className="rounded-md border border-line bg-paper px-2.5 py-1 text-xs font-semibold text-ink hover:border-linka hover:text-linka"
-              type="button"
-              onClick={() => setDraft((current) => appendMentionText(current, member.displayName))}
-            >
-              @{member.displayName}
-            </button>
-          ))}
-        </div>
-      ) : null}
+
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="font-mono text-[11px] text-muted">发送给</span>
+        {agentMembers.map((member) => (
+          <button
+            key={member.id}
+            className="rounded-md border border-line bg-[#fbf7ed] px-2 py-1 text-xs font-semibold text-ink hover:border-linka hover:bg-[#f0ecff] hover:text-linka"
+            type="button"
+            onClick={() => setDraft((current) => appendMentionText(current, member.displayName))}
+          >
+            @{member.displayName}
+          </button>
+        ))}
+        {agentMembers.length === 0 ? (
+          <span className="text-xs text-muted">暂无可提及 Agent</span>
+        ) : null}
+      </div>
+
       <form
-        className="flex flex-col gap-3 sm:flex-row"
+        className="grid gap-2 rounded-md border border-line bg-[#fffaf0] p-2 shadow-sketch sm:grid-cols-[minmax(0,1fr)_92px]"
         onSubmit={(event) => {
           event.preventDefault();
           const nextDraft = draft.trim();
@@ -82,16 +85,18 @@ export const Composer = ({ source }: ComposerProps) => {
         </label>
         <textarea
           id="room-composer"
-          className="min-h-20 flex-1 resize-none rounded-lg border border-line bg-paper px-3 py-2 text-sm leading-6 text-ink placeholder:text-muted"
+          className="min-h-16 resize-none rounded-md border border-transparent bg-transparent px-2 py-2 text-sm leading-6 text-ink placeholder:text-muted focus:border-line focus:bg-panel"
           maxLength={360}
-          placeholder="补充判断、纠偏意见或给 Agent 的下一步要求..."
+          placeholder="发送到当前 Room..."
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <div className="flex shrink-0 flex-row items-center justify-between gap-3 sm:w-32 sm:flex-col sm:items-stretch">
-          <span className="font-mono text-xs text-muted">{draft.length}/360</span>
+        <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-stretch">
+          <span className="px-1 text-right font-mono text-[11px] text-muted">
+            {draft.length}/360
+          </span>
           <button
-            className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-linka disabled:cursor-not-allowed disabled:bg-muted"
+            className="rounded-md bg-linka px-3 py-2 text-sm font-semibold text-white shadow-sketch hover:bg-[#6750ca] disabled:cursor-not-allowed disabled:bg-muted"
             type="submit"
             disabled={draft.trim().length === 0 || isSending}
           >

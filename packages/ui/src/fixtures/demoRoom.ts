@@ -1,6 +1,7 @@
 import {
   announcementId,
   attachmentId,
+  docId,
   participantId,
   pinnedItemId,
   roomFileId,
@@ -9,6 +10,7 @@ import {
   roomMessageId,
   unixMs,
   type Announcement,
+  type Doc,
   type PermissionPolicy,
   type PinnedItem,
   type Room,
@@ -62,6 +64,7 @@ export interface DemoRoomFixture {
   readonly room: Room;
   readonly members: readonly RoomMember[];
   readonly messages: readonly RoomMessage[];
+  readonly docs: readonly Doc[];
   readonly files: readonly RoomFile[];
   readonly announcements: readonly Announcement[];
   readonly pinnedItems: readonly PinnedItem[];
@@ -76,6 +79,7 @@ const verificationMemberId = roomMemberId("rmem_agent_verify");
 const evidenceAttachmentId = attachmentId("att_release_note_snapshot");
 const archiveAttachmentId = attachmentId("att_archive_capture_2026_05_18");
 const evidenceFileId = roomFileId("rfile_release_note_bundle");
+const reviewDocId = docId("doc_url_freshness_review_v1");
 
 export const demoRoom: DemoRoomFixture = {
   room: {
@@ -154,6 +158,29 @@ export const demoRoom: DemoRoomFixture = {
       contentType: "application/json",
       sizeBytes: 18422,
       uri: "linka-demo://files/release-note-evidence.json",
+    },
+  ],
+  docs: [
+    {
+      id: reviewDocId,
+      contextRoomId: demoRoomId,
+      title: "URL 时效核验 Doc (v1.3)",
+      format: "markdown",
+      status: "active",
+      body: [
+        "# 1. 任务目标",
+        "判断一组页面信息是否都是一年内更新，并把每个结论关联到可回溯证据。",
+        "# 2. 核验范围",
+        "首批 12 个 URL 已完成资料采集，其中 2 个页面仍需要补充发布说明或可信快照。",
+        "# 3. 当前标准",
+        "发布说明可以作为证据，但必须明确指向目标 URL 或相同内容段落；只有站点整体更新记录不算。",
+        "# 4. 下一步",
+        "资料 Agent 继续补证，核验 Agent 按用户更新后的标准复核。",
+      ].join("\n\n"),
+      createdAt: ts("2026-05-19T09:20:00+08:00"),
+      updatedAt: ts("2026-05-19T09:27:00+08:00"),
+      createdByMemberId: linkaMemberId,
+      visibility: roomVisibility,
     },
   ],
   announcements: [

@@ -88,7 +88,7 @@ await withMockFetch(
     assert.equal(state.rooms[0]?.id, demoRoom.room.id);
     assert.equal(state.membersByRoomId[demoRoom.room.id]?.length, demoRoom.members.length);
     assert.equal(state.messagesByRoomId[demoRoom.room.id]?.length, demoRoom.messages.length);
-    assert.deepEqual(state.docsByRoomId[demoRoom.room.id], []);
+    assert.equal(state.docsByRoomId[demoRoom.room.id]?.length, demoRoom.docs.length);
     assert.deepEqual(state.harnessRunsByRoomId[demoRoom.room.id], []);
     assert.deepEqual(state.harnessSessionsByRoomId[demoRoom.room.id], []);
     assert.deepEqual(state.runtimeEventsByRunId, {});
@@ -112,7 +112,7 @@ await withMockFetch(
     assert.equal(fallbackFetchCalls, callsBeforeCreateDoc);
     assert.equal(state.isCreatingDoc, false);
     assert.match(state.errorMessage ?? "", /API-backed room/);
-    assert.deepEqual(state.docsByRoomId[demoRoom.room.id], []);
+    assert.equal(state.docsByRoomId[demoRoom.room.id]?.length, demoRoom.docs.length);
   },
 );
 

@@ -80,7 +80,7 @@ export interface RoomState {
 const fallbackRooms = [demoRoom.room];
 const fallbackMembersByRoomId = { [demoRoom.room.id]: demoRoom.members };
 const fallbackMessagesByRoomId = { [demoRoom.room.id]: demoRoom.messages };
-const fallbackDocsByRoomId = { [demoRoom.room.id]: [] };
+const fallbackDocsByRoomId = { [demoRoom.room.id]: demoRoom.docs };
 const fallbackHarnessRunsByRoomId = { [demoRoom.room.id]: [] };
 const fallbackHarnessSessionsByRoomId = { [demoRoom.room.id]: [] };
 const fallbackFilesByRoomId = { [demoRoom.room.id]: demoRoom.files };
