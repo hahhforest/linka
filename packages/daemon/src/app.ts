@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { createAnnouncementsRoute } from "./api/announcements.js";
+import { createLocalDevCorsMiddleware } from "./api/cors.js";
 import { createDevEventsRoute } from "./api/dev-events.js";
 import { createDocsRoute } from "./api/docs.js";
 import { errorResponse, handleDaemonError } from "./api/errors.js";
@@ -23,6 +24,7 @@ export function createDaemonApp(
   const app = new Hono();
   const linka = app.basePath("/linka");
 
+  app.use("*", createLocalDevCorsMiddleware());
   app.onError(handleDaemonError);
   app.notFound((c) => errorResponse(c, 404, "NOT_FOUND", "Route not found"));
 

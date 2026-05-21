@@ -87,6 +87,72 @@ test("createDaemonApp serves health under /linka base path", async () => {
   }
 });
 
+test("createDaemonApp returns local dev CORS headers for browser requests", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const response = await app.request("http://127.0.0.1/linka/health", {
+      headers: { Origin: "http://localhost:5173" },
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), "http://localhost:5173");
+    assert.equal(
+      response.headers.get("Access-Control-Allow-Methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
+    assert.equal(response.headers.get("Access-Control-Allow-Headers"), "Content-Type");
+    assert.equal(response.headers.get("Access-Control-Allow-Credentials"), null);
+    assert.match(response.headers.get("Vary") ?? "", /\bOrigin\b/);
+  } finally {
+    container.close();
+  }
+});
+
+test("createDaemonApp handles local dev CORS preflight before routes", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const response = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://127.0.0.1:5173",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "Content-Type",
+      },
+    });
+
+    assert.equal(response.status, 204);
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), "http://127.0.0.1:5173");
+    assert.equal(
+      response.headers.get("Access-Control-Allow-Methods"),
+      "GET, POST, PATCH, DELETE, OPTIONS",
+    );
+    assert.equal(response.headers.get("Access-Control-Allow-Headers"), "Content-Type");
+    assert.equal(await response.text(), "");
+  } finally {
+    container.close();
+  }
+});
+
+test("createDaemonApp does not grant CORS to non-local origins", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const response = await app.request("http://127.0.0.1/linka/health", {
+      headers: { Origin: "https://example.com" },
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("Access-Control-Allow-Origin"), null);
+  } finally {
+    container.close();
+  }
+});
+
 test("createDaemonApp returns uniform not found errors", async () => {
   const container = createTestContainer();
 
