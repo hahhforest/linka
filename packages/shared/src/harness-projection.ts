@@ -62,11 +62,15 @@ export interface ProjectedRoomMessage extends Pick<
   | "kind"
   | "createdAt"
   | "text"
+  | "content"
+  | "llmRole"
+  | "thread"
   | "mentions"
   | "replyTo"
   | "references"
   | "attachments"
   | "evidence"
+  | "trace"
 > {
   readonly visibility: RoomVisibility;
   readonly notification: RoomNotificationPolicy;

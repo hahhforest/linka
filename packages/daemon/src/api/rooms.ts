@@ -5,6 +5,8 @@ import {
   isRoomMemberKind,
   getMentionedMemberIds,
   isRoomMessageKind,
+  isRoomMessageContentPartType,
+  isRoomMessageLlmRole,
   participantId,
   roomId,
   roomMemberId,
@@ -17,7 +19,12 @@ import {
   type RoomMemberRole,
   type RoomMention,
   type RoomMessage,
+  type RoomMessageContentPart,
+  type RoomMessageExportMeta,
   type RoomMessageKind,
+  type RoomMessageLlmRole,
+  type RoomMessageThread,
+  type RoomMessageTrace,
   type RoomNotificationPolicy,
   type RoomPermissions,
   type RoomVisibility,
@@ -45,7 +52,12 @@ interface AppendMessageRequestBody {
   readonly senderMemberId?: unknown;
   readonly kind?: unknown;
   readonly text?: unknown;
+  readonly content?: unknown;
+  readonly llmRole?: unknown;
+  readonly thread?: unknown;
   readonly mentions?: unknown;
+  readonly trace?: unknown;
+  readonly exportMeta?: unknown;
 }
 
 type RoomResponse = { readonly ok: true; readonly room: Room };
@@ -253,6 +265,61 @@ const parseMentions = (
   });
 };
 
+const parseJsonObjectArray = (
+  value: unknown,
+  label: string,
+): readonly Record<string, unknown>[] => {
+  if (!Array.isArray(value)) {
+    throw new BadRequestError(`${label} must be an array when provided`);
+  }
+
+  return value.map((item, index) => {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) {
+      throw new BadRequestError(`${label}[${index}] must be a JSON object`);
+    }
+
+    return item as Record<string, unknown>;
+  });
+};
+
+const parseOptionalJsonObject = <T>(value: unknown, label: string): T | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new BadRequestError(`${label} must be a JSON object when provided`);
+  }
+
+  return value as T;
+};
+
+const parseContent = (value: unknown): readonly RoomMessageContentPart[] | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  return parseJsonObjectArray(value, "content").map((part, index) => {
+    if (!isRoomMessageContentPartType(part.type)) {
+      throw new BadRequestError(`content[${index}].type must be a supported content part type`);
+    }
+
+    return part as unknown as RoomMessageContentPart;
+  });
+};
+
+const parseLlmRole = (value: unknown): RoomMessageLlmRole | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (!isRoomMessageLlmRole(value)) {
+    throw new BadRequestError("llmRole must be one of system, user, assistant, tool, observer");
+  }
+
+  return value;
+};
+
 const parseAfterSequence = (value: string | undefined): number | undefined => {
   if (value === undefined || value.trim().length === 0) {
     return undefined;
@@ -429,7 +496,12 @@ const appendMessage = (
     kind: parseMessageKind(object.kind),
     createdAt: unixMs(Date.now()),
     text,
+    content: parseContent(object.content),
+    llmRole: parseLlmRole(object.llmRole),
+    thread: parseOptionalJsonObject<RoomMessageThread>(object.thread, "thread"),
     mentions: parseMentions(object.mentions, membersById),
+    trace: parseOptionalJsonObject<RoomMessageTrace>(object.trace, "trace"),
+    exportMeta: parseOptionalJsonObject<RoomMessageExportMeta>(object.exportMeta, "exportMeta"),
     visibility: defaultVisibility,
     notification: defaultNotificationPolicy,
   });
@@ -442,6 +514,80 @@ const appendMessage = (
   }
 
   return message;
+};
+
+const escapeJsonl = (value: unknown): string => JSON.stringify(value);
+
+const deriveLlmRole = (
+  message: RoomMessage,
+  membersById: ReadonlyMap<RoomMember["id"], RoomMember>,
+): "system" | "user" | "assistant" | "tool" => {
+  if (message.llmRole && message.llmRole !== "observer") {
+    return message.llmRole;
+  }
+
+  if (message.sender.kind === "system") {
+    return "system";
+  }
+
+  const sender = membersById.get(message.sender.memberId);
+  if (sender?.kind === "agent") {
+    return "assistant";
+  }
+
+  return "user";
+};
+
+const contentPartToText = (part: RoomMessageContentPart): string => {
+  if (part.type === "text") return part.text;
+  if (part.type === "tool_call") return `[tool_call:${part.name}] ${part.argumentsJson}`;
+  if (part.type === "tool_result")
+    return `[tool_result:${part.status}] ${part.text ?? part.resultJson ?? ""}`;
+  if (part.type === "doc_ref")
+    return `[doc_ref:${part.docId}]${part.quote ? ` ${part.quote}` : ""}`;
+  if (part.type === "file_ref")
+    return `[file_ref:${part.fileId}]${part.label ? ` ${part.label}` : ""}`;
+  if (part.type === "evidence_ref")
+    return `[evidence_ref] ${part.label}${part.uri ? ` ${part.uri}` : ""}`;
+  if (part.type === "image") return `[image:${part.attachmentId}]${part.alt ? ` ${part.alt}` : ""}`;
+  return `[event_ref:${part.eventId}]${part.label ? ` ${part.label}` : ""}`;
+};
+
+const messageContentForExport = (message: RoomMessage): string => {
+  if (message.content && message.content.length > 0) {
+    return message.content.map(contentPartToText).filter(Boolean).join("\n");
+  }
+
+  return message.text ?? "";
+};
+
+const exportMessagesAsHfChatJsonl = (
+  room: Room,
+  members: readonly RoomMember[],
+  messages: readonly RoomMessage[],
+): string => {
+  const membersById = new Map(members.map((member) => [member.id, member]));
+  const record = {
+    messages: messages.map((message) => ({
+      role: deriveLlmRole(message, membersById),
+      content: messageContentForExport(message),
+    })),
+    metadata: {
+      roomId: room.id,
+      roomDisplayName: room.displayName,
+      messageIds: messages.map((message) => message.id),
+      sequences: messages.map((message) => message.sequence),
+      trajectoryIds: [
+        ...new Set(
+          messages
+            .map((message) => message.trace?.trajectoryId)
+            .filter((value): value is string => value !== undefined),
+        ),
+      ],
+    },
+  };
+
+  return `${escapeJsonl(record)}\n`;
 };
 
 const handleRouteError = (c: Parameters<typeof errorResponse>[0], error: unknown): Response => {
@@ -545,6 +691,27 @@ export function createRoomsRoute(
         }),
       };
       return c.json(response);
+    } catch (error) {
+      return handleRouteError(c, error);
+    }
+  });
+
+  app.get("/rooms/:roomId/exports/messages", (c) => {
+    try {
+      const id = parseRoomPathId(c.req.param("roomId"));
+      const format = c.req.query("format") ?? "hf-chat-jsonl";
+
+      if (format !== "hf-chat-jsonl") {
+        throw new BadRequestError("format must be hf-chat-jsonl");
+      }
+
+      const room = ensureRoom(container, id);
+      const members = container.roomStore.listMembers(id);
+      const messages = container.messageStore.listMessages(id, { afterSequence: 0, limit: 500 });
+
+      return c.body(exportMessagesAsHfChatJsonl(room, members, messages), 200, {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+      });
     } catch (error) {
       return handleRouteError(c, error);
     }

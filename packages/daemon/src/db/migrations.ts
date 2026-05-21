@@ -272,6 +272,17 @@ CREATE INDEX IF NOT EXISTS idx_harness_triggers_room_status_created
   ON harness_triggers (room_id, status, created_at);
 `,
   },
+  {
+    version: 6,
+    name: "add_room_message_v2_columns",
+    sql: `
+ALTER TABLE room_messages ADD COLUMN content_json TEXT;
+ALTER TABLE room_messages ADD COLUMN llm_role TEXT;
+ALTER TABLE room_messages ADD COLUMN thread_json TEXT;
+ALTER TABLE room_messages ADD COLUMN trace_json TEXT;
+ALTER TABLE room_messages ADD COLUMN export_meta_json TEXT;
+`,
+  },
 ];
 
 export const runMigrations = (handle: DatabaseHandle): MigrationResult => {

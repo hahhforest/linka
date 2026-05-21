@@ -99,17 +99,64 @@ try {
     visibility,
     notification: notificationPolicy,
   });
+  const structured = messages.appendMessage({
+    id: roomMessageId("rmsg_structured"),
+    roomId: room.id,
+    sender: { kind: "member", memberId: agent.id },
+    kind: "tool_result_summary",
+    createdAt: unixMs(1_716_000_000_350),
+    text: "looked up evidence",
+    content: [
+      { type: "text", text: "looked up evidence", format: "plain" },
+      {
+        type: "tool_call",
+        callId: "call_search_1",
+        name: "search",
+        argumentsJson: JSON.stringify({ query: "LinkA" }),
+      },
+      {
+        type: "tool_result",
+        callId: "call_search_1",
+        status: "ok",
+        text: "1 source found",
+      },
+    ],
+    llmRole: "assistant",
+    thread: { rootMessageId: first.id, replyToMessageId: second.id, topicKey: "evidence" },
+    trace: {
+      trajectoryId: "traj_alpha",
+      sourceMessageIds: [first.id],
+      visibleMessageIds: [first.id, second.id],
+    },
+    exportMeta: {
+      includeInTraining: true,
+      lossMask: "assistant_only",
+      tags: ["store-test"],
+      redactionState: "raw",
+    },
+    visibility,
+    notification: notificationPolicy,
+  });
 
   assert.equal(first.sequence, 1);
   assert.equal(second.sequence, 2);
+  assert.equal(structured.sequence, 3);
+  assert.deepEqual(
+    structured.content?.map((part) => part.type),
+    ["text", "tool_call", "tool_result"],
+  );
+  assert.equal(structured.llmRole, "assistant");
+  assert.equal(structured.thread?.topicKey, "evidence");
+  assert.equal(structured.trace?.trajectoryId, "traj_alpha");
+  assert.deepEqual(structured.exportMeta?.tags, ["store-test"]);
 
   assert.deepEqual(
     messages.listMessages(room.id).map((message) => message.sequence),
-    [1, 2],
+    [1, 2, 3],
   );
   assert.deepEqual(
     messages.listMessages(room.id, { afterSequence: 1 }).map((message) => message.id),
-    [second.id],
+    [second.id, structured.id],
   );
 
   handle.database
@@ -130,7 +177,7 @@ try {
     .run(
       "rmsg_bad_kind",
       room.id,
-      3,
+      4,
       JSON.stringify({ kind: "system", label: "test" }),
       "bad_kind",
       1_716_000_000_400,
@@ -140,6 +187,18 @@ try {
   assert.throws(
     () => messages.listMessages(room.id),
     /Invalid room message kind in database: bad_kind/,
+  );
+
+  handle.database
+    .prepare("UPDATE room_messages SET kind = ? WHERE message_id = ?")
+    .run("text", "rmsg_bad_kind");
+
+  handle.database
+    .prepare("UPDATE room_messages SET kind = ?, llm_role = ? WHERE message_id = ?")
+    .run("text", "bad_role", structured.id);
+  assert.throws(
+    () => messages.listMessages(room.id),
+    /Invalid room message llm_role in database: bad_role/,
   );
 
   handle.database

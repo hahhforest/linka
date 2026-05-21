@@ -46,7 +46,7 @@ const handle = openDatabase({ databasePath: ":memory:" });
 
 try {
   const firstRun = runMigrations(handle);
-  assert.deepEqual(firstRun.appliedVersions, [1, 2, 3, 4, 5]);
+  assert.deepEqual(firstRun.appliedVersions, [1, 2, 3, 4, 5, 6]);
 
   const secondRun = runMigrations(handle);
   assert.deepEqual(secondRun.appliedVersions, []);
@@ -54,7 +54,7 @@ try {
   const migrationCount = handle.database
     .prepare("SELECT COUNT(*) AS count FROM linka_migrations")
     .get() as { count: number };
-  assert.equal(migrationCount.count, 5);
+  assert.equal(migrationCount.count, 6);
 
   for (const tableName of [
     "daemon_events",
@@ -95,6 +95,29 @@ try {
   ]) {
     assert.equal(hasIndex(handle, indexName), true, indexName);
   }
+
+  assertColumns(handle, "room_messages", [
+    "message_id",
+    "room_id",
+    "sequence",
+    "sender_json",
+    "kind",
+    "created_at",
+    "edited_at",
+    "text",
+    "content_json",
+    "llm_role",
+    "thread_json",
+    "mentions_json",
+    "reply_to_json",
+    "references_json",
+    "attachments_json",
+    "evidence_json",
+    "trace_json",
+    "export_meta_json",
+    "visibility_json",
+    "notification_json",
+  ]);
 
   assertColumns(handle, "docs", [
     "doc_id",

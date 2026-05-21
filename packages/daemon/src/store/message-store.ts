@@ -1,14 +1,20 @@
 import {
   isRoomMessageKind,
+  isRoomMessageLlmRole,
   roomId,
   roomMessageId,
   type RoomAttachment,
+  type RoomMessageContentPart,
+  type RoomMessageExportMeta,
   type RoomEvidence,
   type RoomMention,
   type RoomMessage,
   type RoomMessageKind,
+  type RoomMessageLlmRole,
   type RoomMessageReply,
   type RoomMessageSender,
+  type RoomMessageThread,
+  type RoomMessageTrace,
   type RoomNotificationPolicy,
   type RoomReference,
   unixMs,
@@ -42,11 +48,16 @@ interface RoomMessageRow {
   readonly created_at: number;
   readonly edited_at: number | null;
   readonly text: string | null;
+  readonly content_json: string | null;
+  readonly llm_role: string | null;
+  readonly thread_json: string | null;
   readonly mentions_json: string | null;
   readonly reply_to_json: string | null;
   readonly references_json: string | null;
   readonly attachments_json: string | null;
   readonly evidence_json: string | null;
+  readonly trace_json: string | null;
+  readonly export_meta_json: string | null;
   readonly visibility_json: string;
   readonly notification_json: string;
 }
@@ -99,6 +110,18 @@ const parseRoomMessageKind = (value: string): RoomMessageKind => {
   return value;
 };
 
+const parseOptionalRoomMessageLlmRole = (value: string | null): RoomMessageLlmRole | undefined => {
+  if (value === null) {
+    return undefined;
+  }
+
+  if (!isRoomMessageLlmRole(value)) {
+    throw new Error("Invalid room message llm_role in database: " + value);
+  }
+
+  return value;
+};
+
 const toRoomMessage = (row: RoomMessageRow): RoomMessage => ({
   id: roomMessageId(row.message_id),
   roomId: roomId(row.room_id),
@@ -108,11 +131,16 @@ const toRoomMessage = (row: RoomMessageRow): RoomMessage => ({
   createdAt: unixMs(row.created_at),
   editedAt: row.edited_at === null ? undefined : unixMs(row.edited_at),
   text: row.text ?? undefined,
+  content: parseOptionalJson<readonly RoomMessageContentPart[]>(row.content_json),
+  llmRole: parseOptionalRoomMessageLlmRole(row.llm_role),
+  thread: parseOptionalJson<RoomMessageThread>(row.thread_json),
   mentions: parseOptionalJson<readonly RoomMention[]>(row.mentions_json),
   replyTo: parseOptionalJson<RoomMessageReply>(row.reply_to_json),
   references: parseOptionalJson<readonly RoomReference[]>(row.references_json),
   attachments: parseOptionalJson<readonly RoomAttachment[]>(row.attachments_json),
   evidence: parseOptionalJson<readonly RoomEvidence[]>(row.evidence_json),
+  trace: parseOptionalJson<RoomMessageTrace>(row.trace_json),
+  exportMeta: parseOptionalJson<RoomMessageExportMeta>(row.export_meta_json),
   visibility: parseJson<RoomVisibility>(row.visibility_json),
   notification: parseJson<RoomNotificationPolicy>(row.notification_json),
 });
@@ -131,11 +159,16 @@ export const createMessageStore = (handle: DatabaseHandle): MessageStore => {
       created_at,
       edited_at,
       text,
+      content_json,
+      llm_role,
+      thread_json,
       mentions_json,
       reply_to_json,
       references_json,
       attachments_json,
       evidence_json,
+      trace_json,
+      export_meta_json,
       visibility_json,
       notification_json
     ) VALUES (
@@ -147,11 +180,16 @@ export const createMessageStore = (handle: DatabaseHandle): MessageStore => {
       @createdAt,
       @editedAt,
       @text,
+      @contentJson,
+      @llmRole,
+      @threadJson,
       @mentionsJson,
       @replyToJson,
       @referencesJson,
       @attachmentsJson,
       @evidenceJson,
+      @traceJson,
+      @exportMetaJson,
       @visibilityJson,
       @notificationJson
     )
@@ -182,6 +220,9 @@ export const createMessageStore = (handle: DatabaseHandle): MessageStore => {
       createdAt: message.createdAt,
       editedAt: message.editedAt ?? null,
       text: message.text ?? null,
+      contentJson: message.content ? stringifyJson(message.content, "message content") : null,
+      llmRole: message.llmRole ?? null,
+      threadJson: message.thread ? stringifyJson(message.thread, "message thread") : null,
       mentionsJson: message.mentions ? stringifyJson(message.mentions, "message mentions") : null,
       replyToJson: message.replyTo ? stringifyJson(message.replyTo, "message replyTo") : null,
       referencesJson: message.references
@@ -191,6 +232,10 @@ export const createMessageStore = (handle: DatabaseHandle): MessageStore => {
         ? stringifyJson(message.attachments, "message attachments")
         : null,
       evidenceJson: message.evidence ? stringifyJson(message.evidence, "message evidence") : null,
+      traceJson: message.trace ? stringifyJson(message.trace, "message trace") : null,
+      exportMetaJson: message.exportMeta
+        ? stringifyJson(message.exportMeta, "message exportMeta")
+        : null,
       visibilityJson: stringifyJson(message.visibility, "message visibility"),
       notificationJson: stringifyJson(message.notification, "message notification"),
     });

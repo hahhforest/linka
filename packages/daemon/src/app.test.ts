@@ -258,6 +258,204 @@ test("room API creates members and messages with sequenced history and replayabl
   }
 });
 
+test("room API stores structured messages and exports Hugging Face chat JSONL", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Export Room", topic: "training data" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+    const humanResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          participantId: "part_export_human",
+          kind: "human",
+          displayName: "Human",
+        }),
+      },
+    );
+    const agentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          participantId: "part_export_agent",
+          kind: "agent",
+          displayName: "Agent",
+        }),
+      },
+    );
+    const humanBody = (await humanResponse.json()) as { ok: true; member: { id: string } };
+    const agentBody = (await agentResponse.json()) as { ok: true; member: { id: string } };
+
+    const userMessageResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderMemberId: humanBody.member.id,
+          kind: "instruction",
+          text: "请核验这个 URL。",
+          llmRole: "user",
+          exportMeta: { includeInTraining: true, tags: ["hf-export"] },
+        }),
+      },
+    );
+    const agentMessageResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderMemberId: agentBody.member.id,
+          kind: "tool_result_summary",
+          text: "已找到证据。",
+          content: [
+            { type: "text", text: "已找到证据。", format: "plain" },
+            {
+              type: "tool_call",
+              callId: "call_fetch_1",
+              name: "fetch_url",
+              argumentsJson: JSON.stringify({ url: "https://example.test" }),
+            },
+            {
+              type: "tool_result",
+              callId: "call_fetch_1",
+              status: "ok",
+              text: "updated 2026-05-01",
+            },
+          ],
+          llmRole: "assistant",
+          thread: { topicKey: "url-check" },
+          trace: { trajectoryId: "traj_export_1" },
+          exportMeta: {
+            includeInTraining: true,
+            lossMask: "assistant_only",
+            redactionState: "raw",
+          },
+        }),
+      },
+    );
+
+    assert.equal(userMessageResponse.status, 201);
+    assert.equal(agentMessageResponse.status, 201);
+
+    const historyResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages?afterSequence=0&limit=10`,
+    );
+    const historyBody = (await historyResponse.json()) as {
+      ok: true;
+      messages: readonly {
+        llmRole?: string;
+        content?: readonly { type: string }[];
+        thread?: { topicKey?: string };
+        trace?: { trajectoryId?: string };
+        exportMeta?: { lossMask?: string; tags?: readonly string[] };
+      }[];
+    };
+
+    assert.equal(historyResponse.status, 200);
+    assert.deepEqual(
+      historyBody.messages.map((message) => message.llmRole),
+      ["user", "assistant"],
+    );
+    assert.deepEqual(
+      historyBody.messages[1]?.content?.map((part) => part.type),
+      ["text", "tool_call", "tool_result"],
+    );
+    assert.equal(historyBody.messages[1]?.thread?.topicKey, "url-check");
+    assert.equal(historyBody.messages[1]?.trace?.trajectoryId, "traj_export_1");
+    assert.equal(historyBody.messages[1]?.exportMeta?.lossMask, "assistant_only");
+
+    const exportResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/exports/messages?format=hf-chat-jsonl`,
+    );
+    const exportedText = await exportResponse.text();
+    const exported = JSON.parse(exportedText.trim()) as {
+      messages: readonly { role: string; content: string }[];
+      metadata: { roomId: string; messageIds: readonly string[]; trajectoryIds: readonly string[] };
+    };
+
+    assert.equal(exportResponse.status, 200);
+    assert.match(exportResponse.headers.get("content-type") ?? "", /application\/x-ndjson/);
+    assert.deepEqual(
+      exported.messages.map((message) => message.role),
+      ["user", "assistant"],
+    );
+    assert.equal(exported.messages[0]?.content, "请核验这个 URL。");
+    assert.match(exported.messages[1]?.content ?? "", /\[tool_call:fetch_url\]/);
+    assert.equal(exported.metadata.roomId, createRoomBody.room.id);
+    assert.equal(exported.metadata.messageIds.length, 2);
+    assert.deepEqual(exported.metadata.trajectoryIds, ["traj_export_1"]);
+  } finally {
+    container.close();
+  }
+});
+
+test("room API rejects unsupported structured message fields", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const createRoomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName: "Bad Structured Room" }),
+    });
+    const createRoomBody = (await createRoomResponse.json()) as { ok: true; room: { id: string } };
+    const humanResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/members`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          participantId: "part_bad_structured_human",
+          kind: "human",
+          displayName: "Human",
+        }),
+      },
+    );
+    const humanBody = (await humanResponse.json()) as { ok: true; member: { id: string } };
+    const badContentResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderMemberId: humanBody.member.id,
+          content: [{ type: "unknown", text: "bad" }],
+        }),
+      },
+    );
+    const badRoleResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${createRoomBody.room.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          senderMemberId: humanBody.member.id,
+          text: "hello",
+          llmRole: "bot",
+        }),
+      },
+    );
+
+    assert.equal(badContentResponse.status, 400);
+    assert.equal(badRoleResponse.status, 400);
+  } finally {
+    container.close();
+  }
+});
+
 test("room API rejects bad member kind", async () => {
   const container = createTestContainer();
 

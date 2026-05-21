@@ -1,6 +1,12 @@
 import type {
   AnnouncementId,
   AttachmentId,
+  DocId,
+  DocRevisionId,
+  HarnessRunId,
+  HarnessSessionId,
+  HarnessTriggerId,
+  HarnessTurnId,
   ParticipantId,
   PinnedItemId,
   RoomEventId,
@@ -8,6 +14,7 @@ import type {
   RoomId,
   RoomMemberId,
   RoomMessageId,
+  RuntimeSessionId,
 } from "./ids.js";
 import type { UnixMs } from "./primitives.js";
 
@@ -39,6 +46,21 @@ export const ROOM_MESSAGE_KINDS = [
   "system",
 ] as const;
 export type RoomMessageKind = (typeof ROOM_MESSAGE_KINDS)[number];
+
+export const ROOM_MESSAGE_LLM_ROLES = ["system", "user", "assistant", "tool", "observer"] as const;
+export type RoomMessageLlmRole = (typeof ROOM_MESSAGE_LLM_ROLES)[number];
+
+export const ROOM_MESSAGE_CONTENT_PART_TYPES = [
+  "text",
+  "image",
+  "file_ref",
+  "doc_ref",
+  "evidence_ref",
+  "tool_call",
+  "tool_result",
+  "event_ref",
+] as const;
+export type RoomMessageContentPartType = (typeof ROOM_MESSAGE_CONTENT_PART_TYPES)[number];
 
 export const ROOM_EVENT_TYPES = [
   "room.created",
@@ -162,6 +184,96 @@ export interface RoomEvidence {
   readonly messageIds?: readonly RoomMessageId[];
 }
 
+export interface RoomMessageTextPart {
+  readonly type: "text";
+  readonly text: string;
+  readonly format?: "plain" | "markdown";
+}
+
+export interface RoomMessageImagePart {
+  readonly type: "image";
+  readonly attachmentId: AttachmentId;
+  readonly alt?: string;
+}
+
+export interface RoomMessageFileRefPart {
+  readonly type: "file_ref";
+  readonly fileId: RoomFileId;
+  readonly label?: string;
+}
+
+export interface RoomMessageDocRefPart {
+  readonly type: "doc_ref";
+  readonly docId: DocId;
+  readonly revisionId?: DocRevisionId;
+  readonly quote?: string;
+}
+
+export interface RoomMessageEvidenceRefPart {
+  readonly type: "evidence_ref";
+  readonly evidenceId?: string;
+  readonly label: string;
+  readonly uri?: string;
+}
+
+export interface RoomMessageToolCallPart {
+  readonly type: "tool_call";
+  readonly callId: string;
+  readonly name: string;
+  readonly argumentsJson: string;
+}
+
+export interface RoomMessageToolResultPart {
+  readonly type: "tool_result";
+  readonly callId: string;
+  readonly status: "ok" | "error";
+  readonly resultJson?: string;
+  readonly text?: string;
+}
+
+export interface RoomMessageEventRefPart {
+  readonly type: "event_ref";
+  readonly eventId: RoomEventId;
+  readonly label?: string;
+}
+
+export type RoomMessageContentPart =
+  | RoomMessageTextPart
+  | RoomMessageImagePart
+  | RoomMessageFileRefPart
+  | RoomMessageDocRefPart
+  | RoomMessageEvidenceRefPart
+  | RoomMessageToolCallPart
+  | RoomMessageToolResultPart
+  | RoomMessageEventRefPart;
+
+export interface RoomMessageThread {
+  readonly rootMessageId?: RoomMessageId;
+  readonly replyToMessageId?: RoomMessageId;
+  readonly topicKey?: string;
+}
+
+export interface RoomMessageTrace {
+  readonly trajectoryId?: string;
+  readonly harnessSessionId?: HarnessSessionId;
+  readonly harnessTriggerId?: HarnessTriggerId;
+  readonly harnessTurnId?: HarnessTurnId;
+  readonly harnessRunId?: HarnessRunId;
+  readonly runtimeSessionId?: RuntimeSessionId;
+  readonly projectionSnapshotId?: string;
+  readonly sourceMessageIds?: readonly RoomMessageId[];
+  readonly visibleMessageIds?: readonly RoomMessageId[];
+  readonly visibleDocRevisionIds?: readonly DocRevisionId[];
+}
+
+export interface RoomMessageExportMeta {
+  readonly includeInTraining?: boolean;
+  readonly lossMask?: "include" | "exclude" | "assistant_only";
+  readonly evalLabels?: Readonly<Record<string, string | number | boolean>>;
+  readonly tags?: readonly string[];
+  readonly redactionState?: "raw" | "redacted" | "excluded";
+}
+
 export interface RoomMessage {
   readonly id: RoomMessageId;
   readonly roomId: RoomId;
@@ -171,11 +283,16 @@ export interface RoomMessage {
   readonly createdAt: UnixMs;
   readonly editedAt?: UnixMs;
   readonly text?: string;
+  readonly content?: readonly RoomMessageContentPart[];
+  readonly llmRole?: RoomMessageLlmRole;
+  readonly thread?: RoomMessageThread;
   readonly mentions?: readonly RoomMention[];
   readonly replyTo?: RoomMessageReply;
   readonly references?: readonly RoomReference[];
   readonly attachments?: readonly RoomAttachment[];
   readonly evidence?: readonly RoomEvidence[];
+  readonly trace?: RoomMessageTrace;
+  readonly exportMeta?: RoomMessageExportMeta;
   readonly visibility: RoomVisibility;
   readonly notification: RoomNotificationPolicy;
 }
@@ -243,6 +360,13 @@ export interface PinnedItem {
 
 export const isRoomMessageKind = (value: unknown): value is RoomMessageKind =>
   typeof value === "string" && ROOM_MESSAGE_KINDS.includes(value as RoomMessageKind);
+
+export const isRoomMessageLlmRole = (value: unknown): value is RoomMessageLlmRole =>
+  typeof value === "string" && ROOM_MESSAGE_LLM_ROLES.includes(value as RoomMessageLlmRole);
+
+export const isRoomMessageContentPartType = (value: unknown): value is RoomMessageContentPartType =>
+  typeof value === "string" &&
+  ROOM_MESSAGE_CONTENT_PART_TYPES.includes(value as RoomMessageContentPartType);
 
 export const isRoomEventType = (value: unknown): value is RoomEventType =>
   typeof value === "string" && ROOM_EVENT_TYPES.includes(value as RoomEventType);

@@ -8,7 +8,12 @@ import type {
   RoomMemberRole,
   RoomMention,
   RoomMessage,
+  RoomMessageContentPart,
+  RoomMessageExportMeta,
   RoomMessageKind,
+  RoomMessageLlmRole,
+  RoomMessageThread,
+  RoomMessageTrace,
 } from "@linka/shared";
 
 import { requestJson, type ApiClientOptions } from "./apiClient.js";
@@ -31,7 +36,12 @@ export interface SendRoomMessageInput {
   readonly senderMemberId: RoomMemberId;
   readonly kind?: RoomMessageKind;
   readonly text?: string;
+  readonly content?: readonly RoomMessageContentPart[];
+  readonly llmRole?: RoomMessageLlmRole;
+  readonly thread?: RoomMessageThread;
   readonly mentions?: readonly RoomMention[];
+  readonly trace?: RoomMessageTrace;
+  readonly exportMeta?: RoomMessageExportMeta;
 }
 
 type OkResponse<T extends string, Value> = Readonly<Record<T, Value>> & { readonly ok: true };
