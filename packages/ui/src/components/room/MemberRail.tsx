@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import type { Announcement, DocStatus, RoomMember } from "@linka/shared";
+import type { Announcement, DocStatus, RoomMember, RuntimeEvent } from "@linka/shared";
 
+import { buildAgentActivityItems, type AgentActivityItem } from "../../store/agentActivity.js";
 import { useRoomStore } from "../../store/roomStore.js";
 
 const emptyMembers = [] as const;
@@ -43,34 +44,71 @@ const getBodyFirstLine = (body: string): string | undefined =>
     .map((line) => line.trim())
     .find((line) => line.length > 0);
 
-const runStatusLabel = (status: string): string => (status === "succeeded" ? "completed" : status);
+const formatActivityLabel = (value: string): string => value.replace(/_/gu, " ");
 
-const sessionStatusLabel = (status: string): string => {
-  if (status === "idle") return "ready";
-  if (status === "created") return "created";
-  return status.replace(/_/gu, " ");
+const truncateInline = (text: string, maxLength = 140): string => {
+  const normalized = text.trim().replace(/\s+/gu, " ");
+
+  if (normalized.length <= maxLength) return normalized;
+
+  return `${normalized.slice(0, maxLength - 1)}...`;
 };
 
-const getRuntimeLabel = (session: {
-  readonly runtime?: { readonly kind: string; readonly label?: string };
-}): string =>
-  session.runtime?.label ??
-  (session.runtime ? session.runtime.kind + " runtime" : "runtime pending");
-
 const statusClass = (status: string): string => {
-  if (status === "running" || status === "queued") {
+  if (status === "running" || status === "queued" || status === "output") {
     return "border-signal/30 bg-[#edf7f9] text-signal";
   }
 
-  if (status === "succeeded" || status === "idle" || status === "created") {
+  if (
+    status === "succeeded" ||
+    status === "completed" ||
+    status === "idle" ||
+    status === "created" ||
+    status === "ready"
+  ) {
     return "border-success/30 bg-[#edf7f1] text-success";
   }
 
-  if (status === "failed" || status === "cancelled") {
+  if (status === "failed" || status === "cancelled" || status === "error") {
     return "border-danger/30 bg-[#fae8e2] text-danger";
   }
 
+  if (status === "waiting_user" || status === "paused" || status === "terminated") {
+    return "border-caution/30 bg-[#fff3d8] text-caution";
+  }
+
   return "border-line bg-[#fbf7ed] text-muted";
+};
+
+const severityClass = (severity: AgentActivityItem["severity"]): string => {
+  if (severity === "success") return "border-success/30 bg-[#edf7f1] text-success";
+  if (severity === "warning") return "border-caution/30 bg-[#fff3d8] text-caution";
+  if (severity === "error") return "border-danger/30 bg-[#fae8e2] text-danger";
+
+  return "border-line bg-[#fbf7ed] text-muted";
+};
+
+const runtimeEventSummary = (event: RuntimeEvent): string => {
+  switch (event.payload.kind) {
+    case "adapter_output":
+      return event.payload.text
+        ? truncateInline(event.payload.text)
+        : `${event.payload.stream} output received`;
+    case "adapter_error":
+      return event.payload.code
+        ? `${event.payload.code}: ${truncateInline(event.payload.message)}`
+        : truncateInline(event.payload.message);
+    case "adapter_metadata": {
+      const keys = Object.keys(event.payload.data);
+      return keys.length > 0 ? `metadata: ${keys.slice(0, 4).join(", ")}` : "metadata received";
+    }
+    case "run_status":
+      return event.payload.message
+        ? truncateInline(event.payload.message)
+        : `status: ${event.payload.status}`;
+    case "session_ref":
+      return `session: ${event.payload.session.label ?? event.payload.session.adapterSessionId ?? event.payload.session.kind}`;
+  }
 };
 
 const permissionSummary = (member: RoomMember): string => {
@@ -103,6 +141,7 @@ export const MemberRail = () => {
   const [editingAnnouncementId, setEditingAnnouncementId] = useState<string | undefined>();
   const [isSavingAnnouncement, setIsSavingAnnouncement] = useState(false);
   const [deletingAnnouncementId, setDeletingAnnouncementId] = useState<string | undefined>();
+  const [selectedActivityId, setSelectedActivityId] = useState<string | undefined>();
   const activeRoomId = useRoomStore((state) => state.activeRoomId);
   const source = useRoomStore((state) => state.source);
   const room = useRoomStore((state) =>
@@ -154,10 +193,25 @@ export const MemberRail = () => {
     (announcement) => announcement.id === editingAnnouncementId,
   );
   const isApiBacked = source === "api";
-  const recentSessions = [...sessions]
-    .sort((left, right) => right.updatedAt - left.updatedAt)
-    .slice(0, 4);
-  const recentRuns = [...runs].sort((left, right) => right.createdAt - left.createdAt).slice(0, 4);
+  const roomRuntimeEventsByRunId = useMemo(
+    () =>
+      Object.fromEntries(runs.map((run) => [run.id, runtimeEventsByRunId[run.id] ?? []] as const)),
+    [runs, runtimeEventsByRunId],
+  );
+  const activityItems = useMemo(
+    () =>
+      buildAgentActivityItems({
+        members,
+        sessions,
+        runs,
+        runtimeEventsByRunId: roomRuntimeEventsByRunId,
+      }),
+    [members, sessions, runs, roomRuntimeEventsByRunId],
+  );
+  const selectedActivity = activityItems.find((item) => item.id === selectedActivityId);
+  const selectedActivityRawEvents = selectedActivity?.runId
+    ? (roomRuntimeEventsByRunId[selectedActivity.runId] ?? selectedActivity.rawEvents)
+    : (selectedActivity?.rawEvents ?? []);
 
   useEffect(() => {
     if (!selectedDoc) return;
@@ -179,6 +233,13 @@ export const MemberRail = () => {
     setAnnouncementTitle(editingAnnouncement.title ?? "");
     setAnnouncementBody(editingAnnouncement.body);
   }, [editingAnnouncement]);
+
+  useEffect(() => {
+    if (!selectedActivityId) return;
+    if (activityItems.some((item) => item.id === selectedActivityId)) return;
+
+    setSelectedActivityId(undefined);
+  }, [activityItems, selectedActivityId]);
 
   return (
     <aside className="linka-scrollbar min-h-0 overflow-y-auto border-t border-line bg-[#f7f0e3]/90 p-3 lg:border-l lg:border-t-0">
@@ -729,97 +790,137 @@ export const MemberRail = () => {
 
       {activeTab === "activity" ? (
         <section className="mt-4 grid gap-3">
-          <h2 className="text-sm font-semibold">Agent 活动</h2>
-          {recentSessions.map((session) => {
-            const target = members.find((member) => member.id === session.agentMemberId);
-            const updatedAt = session.updatedAt;
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold">Agent 活动</h2>
+            <span className="font-mono text-[11px] text-muted">{activityItems.length}</span>
+          </div>
 
-            return (
-              <article
-                key={session.id}
-                className="rounded-md border border-line bg-panel/72 p-2.5 shadow-sketch"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h3 className="truncate text-sm font-semibold">
-                      {target?.displayName ?? "Agent"}
-                    </h3>
-                    <time
-                      className="mt-1 block font-mono text-[11px] text-muted"
-                      dateTime={new Date(updatedAt).toISOString()}
+          {activityItems.length > 0 ? (
+            <div className="grid gap-2">
+              {activityItems.map((item) => (
+                <button
+                  key={item.id}
+                  className={`rounded-md border p-2.5 text-left shadow-sketch hover:border-linka ${
+                    selectedActivity?.id === item.id
+                      ? "border-linka/35 bg-[#f0ecff]"
+                      : "border-line bg-panel/72"
+                  }`}
+                  type="button"
+                  onClick={() => setSelectedActivityId(item.id)}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="rounded-md border border-line bg-[#fbf7ed] px-2 py-0.5 font-mono text-[11px] text-muted">
+                          {formatActivityLabel(item.kind)}
+                        </span>
+                        <span
+                          className={`rounded-md border px-2 py-0.5 font-mono text-[11px] ${severityClass(item.severity)}`}
+                        >
+                          {item.severity}
+                        </span>
+                      </div>
+                      <h3 className="mt-2 line-clamp-2 break-words text-sm font-semibold">
+                        {item.title}
+                      </h3>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-md border px-2 py-0.5 font-mono text-[11px] ${statusClass(item.status)}`}
                     >
-                      {formatShortTime(updatedAt)}
-                    </time>
+                      {formatActivityLabel(item.status)}
+                    </span>
                   </div>
-                  <span
-                    className={`shrink-0 rounded-md border px-2 py-0.5 font-mono text-[11px] ${statusClass(session.status)}`}
-                  >
-                    {sessionStatusLabel(session.status)}
-                  </span>
-                </div>
-                <p className="mt-1 truncate font-mono text-[11px] text-muted">
-                  {getRuntimeLabel(session)}
-                </p>
-              </article>
-            );
-          })}
-
-          {recentRuns.map((run) => {
-            const target = members.find((member) => member.id === run.targetMemberId);
-            const events = runtimeEventsByRunId[run.id] ?? [];
-            const latestEvent = events.at(-1);
-            const latestOutput = [...events]
-              .reverse()
-              .find(
-                (event) =>
-                  event.type === "adapter.output" && event.payload.kind === "adapter_output",
-              );
-            const outputText =
-              latestOutput?.payload.kind === "adapter_output"
-                ? latestOutput.payload.text
-                : undefined;
-            const updatedAt = run.completedAt ?? latestEvent?.createdAt ?? run.updatedAt;
-
-            return (
-              <article
-                key={run.id}
-                className="rounded-md border border-line bg-panel/72 p-2.5 shadow-sketch"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h3 className="truncate text-sm font-semibold">
-                      {target?.displayName ?? "Agent"}
-                    </h3>
-                    <time
-                      className="mt-1 block font-mono text-[11px] text-muted"
-                      dateTime={new Date(updatedAt).toISOString()}
-                    >
-                      {formatShortTime(updatedAt)}
-                    </time>
-                  </div>
-                  <span
-                    className={`shrink-0 rounded-md border px-2 py-0.5 font-mono text-[11px] ${statusClass(run.status)}`}
-                  >
-                    {runStatusLabel(run.status)}
-                  </span>
-                </div>
-                {run.error ? (
-                  <p className="mt-2 break-words text-xs leading-5 text-danger">{run.error}</p>
-                ) : (outputText ?? run.summary) ? (
                   <p className="mt-2 line-clamp-3 break-words text-xs leading-5 text-muted">
-                    {outputText ?? run.summary}
+                    {item.summary || "暂无摘要"}
                   </p>
-                ) : (
-                  <p className="mt-2 text-xs text-muted">等待 runtime 事件</p>
-                )}
-              </article>
-            );
-          })}
-
-          {recentRuns.length === 0 && recentSessions.length === 0 ? (
-            <p className="rounded-md border border-line bg-panel/62 p-2.5 text-xs text-muted">
-              暂无运行记录
+                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-muted">
+                    <span>{item.agentDisplayName}</span>
+                    <span>events {item.rawEventCount}</span>
+                    <time dateTime={new Date(item.updatedAt).toISOString()}>
+                      {formatShortTime(item.updatedAt)}
+                    </time>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-md border border-line bg-panel/62 p-3 text-xs leading-5 text-muted">
+              暂无 Agent 活动。启动 session 或触发 agent run 后，这里会显示 projection item。
             </p>
+          )}
+
+          {selectedActivity ? (
+            <section className="rounded-md border border-linka/30 bg-panel/90 p-3 shadow-sketch">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-mono text-[11px] uppercase text-linka">Run detail</p>
+                  <h3 className="mt-1 line-clamp-2 break-words text-sm font-semibold">
+                    {selectedActivity.title}
+                  </h3>
+                </div>
+                <button
+                  className="rounded-md border border-line bg-[#fbf7ed] px-2 py-0.5 text-[11px] text-muted hover:border-linka hover:text-linka"
+                  type="button"
+                  onClick={() => setSelectedActivityId(undefined)}
+                >
+                  收起
+                </button>
+              </div>
+
+              <dl className="mt-3 grid gap-1 text-xs leading-5 text-muted">
+                <div className="flex justify-between gap-3">
+                  <dt>agent</dt>
+                  <dd className="text-right">{selectedActivity.agentDisplayName}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt>runId</dt>
+                  <dd className="break-all text-right font-mono">
+                    {selectedActivity.runId ?? "n/a"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt>sessionId</dt>
+                  <dd className="break-all text-right font-mono">
+                    {selectedActivity.sessionId ?? "n/a"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt>triggerId</dt>
+                  <dd className="break-all text-right font-mono">
+                    {selectedActivity.triggerId ?? "n/a"}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt>rawEventCount</dt>
+                  <dd>{selectedActivity.rawEventCount}</dd>
+                </div>
+              </dl>
+
+              <div className="mt-3 grid gap-2">
+                <h4 className="font-mono text-[11px] uppercase text-muted">
+                  Raw runtime events ({selectedActivityRawEvents.length})
+                </h4>
+                {selectedActivityRawEvents.length > 0 ? (
+                  selectedActivityRawEvents.map((event) => (
+                    <article
+                      key={event.id}
+                      className="rounded-md border border-line bg-[#fbf7ed] p-2 text-xs leading-5 text-muted"
+                    >
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px]">
+                        <span>#{event.sequence}</span>
+                        <span>{event.type}</span>
+                        <span>{event.payload.kind}</span>
+                      </div>
+                      <p className="mt-1 break-words">{runtimeEventSummary(event)}</p>
+                    </article>
+                  ))
+                ) : (
+                  <p className="rounded-md border border-line bg-[#fbf7ed] p-2 text-xs text-muted">
+                    暂无 raw runtime events。
+                  </p>
+                )}
+              </div>
+            </section>
           ) : null}
         </section>
       ) : null}
