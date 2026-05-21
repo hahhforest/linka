@@ -12,7 +12,7 @@ import {
 } from "@linka/shared";
 
 import { demoRoom } from "../fixtures/demoRoom.js";
-import { createRoomDoc, getDoc, listRoomDocs } from "./docsService.js";
+import { createDocComment, createRoomDoc, getDoc, listRoomDocs, updateDoc } from "./docsService.js";
 
 interface CapturedRequest {
   readonly input: string;
@@ -82,11 +82,46 @@ const createdDoc: Doc = {
   visibility: memberVisibility,
 };
 
+const updatedDoc: Doc = {
+  ...createdDoc,
+  title: "Updated Doc",
+  status: "active",
+  body: "Updated through service.",
+  updatedAt: unixMs(1_716_000_000_300),
+  currentRevisionId: docRevisionId("drev_ui_service_updated_2"),
+};
+
+const updatedRevision: DocRevision = {
+  id: docRevisionId("drev_ui_service_updated_2"),
+  docId: updatedDoc.id,
+  contextRoomId: demoRoom.room.id,
+  revisionNumber: 2,
+  format: "markdown",
+  status: "committed",
+  body: updatedDoc.body,
+  title: updatedDoc.title,
+  createdAt: unixMs(1_716_000_000_300),
+  createdByMemberId: owner.id,
+  parentRevisionId: revision.id,
+  summary: "service update",
+};
+
+const createdComment: DocComment = {
+  ...comment,
+  id: docCommentId("dcmt_ui_service_created_2"),
+  docId: updatedDoc.id,
+  revisionId: updatedRevision.id,
+  body: "Looks ready.",
+  createdByMemberId: owner.id,
+};
+
 const requests: CapturedRequest[] = [];
 const responses = [
   makeJsonResponse({ ok: true, docs: [doc] }),
   makeJsonResponse({ ok: true, doc, revisions: [revision], comments: [comment] }),
   makeJsonResponse({ ok: true, doc: createdDoc }, 201),
+  makeJsonResponse({ ok: true, doc: updatedDoc, revision: updatedRevision }),
+  makeJsonResponse({ ok: true, comment: createdComment }, 201),
 ];
 
 const fetchImpl: typeof fetch = async (input, init = {}) => {
@@ -137,6 +172,52 @@ assert.deepEqual(JSON.parse(String(requests[2]?.init.body)), {
   status: "draft",
   createdByMemberId: owner.id,
   visibility: memberVisibility,
+});
+
+assert.deepEqual(
+  await updateDoc(
+    createdDoc.id,
+    {
+      title: "Updated Doc",
+      body: "Updated through service.",
+      status: "active",
+      updatedByMemberId: owner.id,
+      summary: "service update",
+    },
+    options,
+  ),
+  { doc: updatedDoc, revision: updatedRevision },
+);
+assert.equal(requests[3]?.input, `http://daemon.test/linka/docs/${createdDoc.id}`);
+assert.equal(requests[3]?.init.method, "PATCH");
+assert.deepEqual(JSON.parse(String(requests[3]?.init.body)), {
+  title: "Updated Doc",
+  body: "Updated through service.",
+  status: "active",
+  updatedByMemberId: owner.id,
+  summary: "service update",
+});
+
+assert.deepEqual(
+  await createDocComment(
+    createdDoc.id,
+    {
+      body: "Looks ready.",
+      createdByMemberId: owner.id,
+      revisionId: updatedRevision.id,
+      visibility: docVisibility,
+    },
+    options,
+  ),
+  createdComment,
+);
+assert.equal(requests[4]?.input, `http://daemon.test/linka/docs/${createdDoc.id}/comments`);
+assert.equal(requests[4]?.init.method, "POST");
+assert.deepEqual(JSON.parse(String(requests[4]?.init.body)), {
+  body: "Looks ready.",
+  createdByMemberId: owner.id,
+  revisionId: updatedRevision.id,
+  visibility: docVisibility,
 });
 
 console.log("docs service api shape: ok");

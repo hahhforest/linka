@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 
 import {
   docId,
+  docCommentId,
+  docRevisionId,
   harnessRunId,
   harnessSessionId,
   participantId,
@@ -10,7 +12,10 @@ import {
   runtimeEventId,
   runtimeSessionId,
   unixMs,
+  type Announcement,
   type Doc,
+  type DocComment,
+  type DocRevision,
   type HarnessRun,
   type HarnessSession,
   type RuntimeEvent,
@@ -45,6 +50,7 @@ const resetStore = (): void => {
     membersByRoomId: {},
     messagesByRoomId: {},
     docsByRoomId: {},
+    docDetailsByDocId: {},
     harnessRunsByRoomId: {},
     harnessSessionsByRoomId: {},
     runtimeEventsByRunId: {},
@@ -151,6 +157,31 @@ const createdApiDoc: Doc = {
   visibility: { scope: "room" },
 };
 
+const apiAnnouncement: Announcement = {
+  id: "announcement_room_store_initial" as Announcement["id"],
+  roomId: apiRoom.id,
+  title: "Initial Announcement",
+  body: "Loaded through room store.",
+  createdAt: unixMs(1_716_000_250_000),
+  updatedAt: unixMs(1_716_000_250_100),
+  createdByMemberId: apiMembers[0].id,
+  visibility: { scope: "room" },
+};
+
+const createdAnnouncement: Announcement = {
+  ...apiAnnouncement,
+  id: "announcement_room_store_created" as Announcement["id"],
+  title: "Created Announcement",
+  body: "Created through the room store.",
+};
+
+const updatedAnnouncement: Announcement = {
+  ...createdAnnouncement,
+  title: "Updated Announcement",
+  body: "Updated through the room store.",
+  updatedAt: unixMs(1_716_000_260_000),
+};
+
 const apiRuntime = {
   id: runtimeSessionId("rsess_room_store_run"),
   kind: "opencode" as const,
@@ -224,6 +255,7 @@ const responses = [
   makeJsonResponse({ ok: true, members: apiMembers }),
   makeJsonResponse({ ok: true, messages: [initialApiMessage] }),
   makeJsonResponse({ ok: true, docs: apiDocs }),
+  makeJsonResponse({ ok: true, announcements: [apiAnnouncement] }),
   makeJsonResponse({ ok: true, runs: [apiRun] }),
   makeJsonResponse({ ok: true, sessions: [apiSession] }),
   makeJsonResponse({ ok: true, events: [apiRunEvent] }),
@@ -231,6 +263,7 @@ const responses = [
   makeJsonResponse({ ok: true, members: apiMembers }),
   makeJsonResponse({ ok: true, messages: [initialApiMessage, composerApiMessage] }),
   makeJsonResponse({ ok: true, docs: apiDocs }),
+  makeJsonResponse({ ok: true, announcements: [apiAnnouncement] }),
   makeJsonResponse({ ok: true, runs: [apiRun] }),
   makeJsonResponse({ ok: true, sessions: [apiSession] }),
   makeJsonResponse({ ok: true, events: [apiRunEvent] }),
@@ -258,6 +291,7 @@ await withMockFetch(
     assert.deepEqual(state.membersByRoomId[apiRoom.id], apiMembers);
     assert.deepEqual(state.messagesByRoomId[apiRoom.id], [initialApiMessage]);
     assert.deepEqual(state.docsByRoomId[apiRoom.id], apiDocs);
+    assert.deepEqual(state.announcementsByRoomId[apiRoom.id], [apiAnnouncement]);
     assert.deepEqual(state.harnessRunsByRoomId[apiRoom.id], [apiRun]);
     assert.deepEqual(state.harnessSessionsByRoomId[apiRoom.id], [apiSession]);
     assert.deepEqual(state.runtimeEventsByRunId[apiRun.id], [apiRunEvent]);
@@ -276,6 +310,7 @@ await withMockFetch(
         `GET /linka/rooms/${apiRoom.id}/members`,
         `GET /linka/rooms/${apiRoom.id}/messages?afterSequence=0&limit=500`,
         `GET /linka/rooms/${apiRoom.id}/docs`,
+        `GET /linka/rooms/${apiRoom.id}/announcements`,
         `GET /linka/rooms/${apiRoom.id}/harness-runs`,
         `GET /linka/rooms/${apiRoom.id}/harness-sessions`,
         `GET /linka/harness-runs/${apiRun.id}/events`,
@@ -297,10 +332,11 @@ await withMockFetch(
     assert.equal(state.source, "api");
     assert.deepEqual(state.messagesByRoomId[apiRoom.id], [initialApiMessage, composerApiMessage]);
     assert.deepEqual(state.docsByRoomId[apiRoom.id], apiDocs);
+    assert.deepEqual(state.announcementsByRoomId[apiRoom.id], [apiAnnouncement]);
     assert.deepEqual(state.harnessSessionsByRoomId[apiRoom.id], [apiSession]);
     assert.equal(state.isSending, false);
 
-    const composerPost = requests[13];
+    const composerPost = requests[14];
     assert.equal(composerPost?.input, `/linka/rooms/${apiRoom.id}/messages`);
     assert.equal(composerPost?.init.method, "POST");
     assert.deepEqual(JSON.parse(String(composerPost?.init.body)), {
@@ -310,12 +346,13 @@ await withMockFetch(
     });
 
     assert.deepEqual(
-      requests.slice(13).map((request) => `${request.init.method ?? "GET"} ${request.input}`),
+      requests.slice(14).map((request) => `${request.init.method ?? "GET"} ${request.input}`),
       [
         `POST /linka/rooms/${apiRoom.id}/messages`,
         `GET /linka/rooms/${apiRoom.id}/members`,
         `GET /linka/rooms/${apiRoom.id}/messages?afterSequence=0&limit=500`,
         `GET /linka/rooms/${apiRoom.id}/docs`,
+        `GET /linka/rooms/${apiRoom.id}/announcements`,
         `GET /linka/rooms/${apiRoom.id}/harness-runs`,
         `GET /linka/rooms/${apiRoom.id}/harness-sessions`,
         `GET /linka/harness-runs/${apiRun.id}/events`,
@@ -331,7 +368,7 @@ await withMockFetch(
     assert.equal(state.errorMessage, undefined);
     assert.deepEqual(state.docsByRoomId[apiRoom.id], [...apiDocs, createdApiDoc]);
 
-    const docPost = requests[20];
+    const docPost = requests[22];
     assert.equal(docPost?.input, `/linka/rooms/${apiRoom.id}/docs`);
     assert.equal(docPost?.init.method, "POST");
     assert.deepEqual(JSON.parse(String(docPost?.init.body)), {
@@ -378,6 +415,7 @@ const createRoomResponses = [
   makeJsonResponse({ ok: true, members: createdDefaultsMembers }),
   makeJsonResponse({ ok: true, messages: [] }),
   makeJsonResponse({ ok: true, docs: [] }),
+  makeJsonResponse({ ok: true, announcements: [] }),
   makeJsonResponse({ ok: true, runs: [] }),
   makeJsonResponse({ ok: true, sessions: [] }),
 ];
@@ -432,6 +470,7 @@ assert.deepEqual(
     `GET /linka/rooms/${createdDefaultsRoom.id}/members`,
     `GET /linka/rooms/${createdDefaultsRoom.id}/messages?afterSequence=0&limit=500`,
     `GET /linka/rooms/${createdDefaultsRoom.id}/docs`,
+    `GET /linka/rooms/${createdDefaultsRoom.id}/announcements`,
     `GET /linka/rooms/${createdDefaultsRoom.id}/harness-runs`,
     `GET /linka/rooms/${createdDefaultsRoom.id}/harness-sessions`,
   ],
@@ -475,6 +514,7 @@ const handoffResponses = [
   makeJsonResponse({ ok: true, members: apiMembers }),
   makeJsonResponse({ ok: true, messages: [...demoRoom.messages, handoffMessage] }),
   makeJsonResponse({ ok: true, docs: [...apiDocs, handoffDoc] }),
+  makeJsonResponse({ ok: true, announcements: [apiAnnouncement] }),
   makeJsonResponse({ ok: true, runs: [] }),
   makeJsonResponse({ ok: true, sessions: [] }),
 ];
@@ -498,6 +538,7 @@ await withMockFetch(
       membersByRoomId: { [apiRoom.id]: apiMembers },
       messagesByRoomId: { [apiRoom.id]: demoRoom.messages },
       docsByRoomId: { [apiRoom.id]: apiDocs },
+      docDetailsByDocId: {},
       harnessRunsByRoomId: { [apiRoom.id]: [] },
       harnessSessionsByRoomId: { [apiRoom.id]: [] },
       runtimeEventsByRunId: {},
@@ -529,6 +570,7 @@ assert.deepEqual(
     `GET /linka/rooms/${apiRoom.id}/members`,
     `GET /linka/rooms/${apiRoom.id}/messages?afterSequence=0&limit=500`,
     `GET /linka/rooms/${apiRoom.id}/docs`,
+    `GET /linka/rooms/${apiRoom.id}/announcements`,
     `GET /linka/rooms/${apiRoom.id}/harness-runs`,
     `GET /linka/rooms/${apiRoom.id}/harness-sessions`,
   ],
@@ -545,6 +587,174 @@ assert.deepEqual(handoffState.messagesByRoomId[apiRoom.id]?.at(-1), handoffMessa
 assert.equal(handoffState.errorMessage, undefined);
 assert.equal(handoffResponses.length, 0);
 
+const detailRevision: DocRevision = {
+  id: docRevisionId("drev_room_store_detail_1"),
+  docId: apiDocs[0].id,
+  contextRoomId: apiRoom.id,
+  revisionNumber: 1,
+  format: "markdown",
+  status: "committed",
+  body: apiDocs[0].body,
+  title: apiDocs[0].title,
+  createdAt: unixMs(1_716_000_300_200),
+  createdByMemberId: apiMembers[0].id,
+};
+const updatedApiDoc: Doc = {
+  ...apiDocs[0],
+  title: "Edited Room Store Brief",
+  body: "# Edited\n\nSaved through the room store.",
+  currentRevisionId: docRevisionId("drev_room_store_detail_2"),
+};
+const updatedApiRevision: DocRevision = {
+  ...detailRevision,
+  id: updatedApiDoc.currentRevisionId,
+  revisionNumber: 2,
+  body: updatedApiDoc.body,
+  title: updatedApiDoc.title,
+  parentRevisionId: detailRevision.id,
+  summary: "UI save",
+};
+const apiDocComment: DocComment = {
+  id: docCommentId("dcmt_room_store_detail_1"),
+  docId: apiDocs[0].id,
+  contextRoomId: apiRoom.id,
+  revisionId: updatedApiRevision.id,
+  body: "Comment through the room store.",
+  status: "open",
+  createdAt: unixMs(1_716_000_300_300),
+  updatedAt: unixMs(1_716_000_300_300),
+  createdByMemberId: apiMembers[0].id,
+  visibility: { scope: "room" },
+};
+const mutationRequests: CapturedRequest[] = [];
+const mutationResponses = [
+  makeJsonResponse({ ok: true, doc: apiDocs[0], revisions: [detailRevision], comments: [] }),
+  makeJsonResponse({ ok: true, doc: updatedApiDoc, revision: updatedApiRevision }),
+  makeJsonResponse({ ok: true, comment: apiDocComment }, 201),
+  makeJsonResponse({ ok: true, announcement: createdAnnouncement }, 201),
+  makeJsonResponse({ ok: true, announcement: updatedAnnouncement }),
+  makeJsonResponse({ ok: true }),
+];
+
+await withMockFetch(
+  async (input, init = {}) => {
+    mutationRequests.push({ input: String(input), init });
+    const response = mutationResponses.shift();
+
+    if (!response) {
+      throw new Error(`unexpected mutation fetch call: ${String(input)}`);
+    }
+
+    return response;
+  },
+  async () => {
+    resetStore();
+    useRoomStore.setState({
+      rooms: [apiRoom],
+      activeRoomId: apiRoom.id,
+      membersByRoomId: { [apiRoom.id]: apiMembers },
+      messagesByRoomId: { [apiRoom.id]: [] },
+      docsByRoomId: { [apiRoom.id]: apiDocs },
+      docDetailsByDocId: {},
+      harnessRunsByRoomId: { [apiRoom.id]: [] },
+      harnessSessionsByRoomId: { [apiRoom.id]: [] },
+      runtimeEventsByRunId: {},
+      filesByRoomId: { [apiRoom.id]: [] },
+      announcementsByRoomId: { [apiRoom.id]: [apiAnnouncement] },
+      pinnedItemsByRoomId: { [apiRoom.id]: [] },
+      source: "api",
+      isLoading: false,
+      errorMessage: undefined,
+    });
+
+    assert.deepEqual(await useRoomStore.getState().loadActiveRoomDocDetail(apiDocs[0].id), {
+      revisions: [detailRevision],
+      comments: [],
+    });
+    assert.deepEqual(
+      await useRoomStore.getState().updateActiveRoomDoc(apiDocs[0].id, {
+        title: updatedApiDoc.title,
+        body: updatedApiDoc.body,
+        status: "active",
+        summary: "UI save",
+      }),
+      updatedApiDoc,
+    );
+    assert.deepEqual(
+      await useRoomStore.getState().createActiveDocComment(apiDocs[0].id, {
+        body: " Comment through the room store. ",
+      }),
+      apiDocComment,
+    );
+    assert.deepEqual(
+      await useRoomStore.getState().createActiveRoomAnnouncement({
+        title: " Created Announcement ",
+        body: " Created through the room store. ",
+      }),
+      createdAnnouncement,
+    );
+    assert.deepEqual(
+      await useRoomStore.getState().updateActiveRoomAnnouncement(createdAnnouncement.id, {
+        title: "Updated Announcement",
+        body: "Updated through the room store.",
+      }),
+      updatedAnnouncement,
+    );
+    assert.equal(
+      await useRoomStore.getState().deleteActiveRoomAnnouncement(updatedAnnouncement.id),
+      true,
+    );
+
+    const state = useRoomStore.getState();
+    assert.deepEqual(state.docsByRoomId[apiRoom.id], [updatedApiDoc]);
+    assert.deepEqual(state.docDetailsByDocId[apiDocs[0].id], {
+      revisions: [detailRevision, updatedApiRevision],
+      comments: [apiDocComment],
+    });
+    assert.deepEqual(state.announcementsByRoomId[apiRoom.id], [apiAnnouncement]);
+    assert.equal(state.errorMessage, undefined);
+  },
+);
+
+assert.deepEqual(
+  mutationRequests.map((request) => `${request.init.method ?? "GET"} ${request.input}`),
+  [
+    `GET /linka/docs/${apiDocs[0].id}`,
+    `PATCH /linka/docs/${apiDocs[0].id}`,
+    `POST /linka/docs/${apiDocs[0].id}/comments`,
+    `POST /linka/rooms/${apiRoom.id}/announcements`,
+    `PATCH /linka/announcements/${createdAnnouncement.id}`,
+    `DELETE /linka/announcements/${updatedAnnouncement.id}`,
+  ],
+);
+assert.deepEqual(JSON.parse(String(mutationRequests[1]?.init.body)), {
+  title: updatedApiDoc.title,
+  body: updatedApiDoc.body,
+  status: "active",
+  summary: "UI save",
+  updatedByMemberId: apiMembers[0].id,
+});
+assert.deepEqual(JSON.parse(String(mutationRequests[2]?.init.body)), {
+  body: "Comment through the room store.",
+  createdByMemberId: apiMembers[0].id,
+  revisionId: updatedApiDoc.currentRevisionId,
+  visibility: { scope: "room" },
+});
+assert.deepEqual(JSON.parse(String(mutationRequests[3]?.init.body)), {
+  title: "Created Announcement",
+  body: "Created through the room store.",
+  createdByMemberId: apiMembers[0].id,
+  visibility: { scope: "room" },
+});
+assert.deepEqual(JSON.parse(String(mutationRequests[4]?.init.body)), {
+  title: "Updated Announcement",
+  body: "Updated through the room store.",
+});
+assert.equal(mutationRequests[5]?.init.body, undefined);
+assert.equal(mutationResponses.length, 0);
+
+console.log("room store doc and announcement mutations: ok");
+
 const resetStoreForRealtimeEvents = (): void => {
   useRoomStore.setState({
     rooms: [demoRoom.room],
@@ -552,6 +762,7 @@ const resetStoreForRealtimeEvents = (): void => {
     membersByRoomId: { [demoRoom.room.id]: [demoRoom.members[0]] },
     messagesByRoomId: { [demoRoom.room.id]: [initialApiMessage] },
     docsByRoomId: { [demoRoom.room.id]: apiDocs },
+    docDetailsByDocId: {},
     harnessRunsByRoomId: { [demoRoom.room.id]: [apiRun] },
     harnessSessionsByRoomId: { [demoRoom.room.id]: [apiSession] },
     runtimeEventsByRunId: { [apiRun.id]: [apiRunEvent] },

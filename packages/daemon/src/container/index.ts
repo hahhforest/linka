@@ -6,6 +6,10 @@ import { getDataDir, getProfile, resolvePort } from "@linka/config";
 import { openDatabase, type DatabaseHandle } from "../db/connection.js";
 import { runMigrations } from "../db/migrations.js";
 import { createEventBus, type EventBus } from "../event-bus/index.js";
+import {
+  createAnnouncementStore,
+  type AnnouncementStore,
+} from "../store/announcement-store.js";
 import { createDocStore, type DocStore } from "../store/doc-store.js";
 import { createEventStore, type EventStore } from "../store/event-store.js";
 import { createHarnessRunStore, type HarnessRunStore } from "../store/harness-run-store.js";
@@ -40,6 +44,7 @@ export interface DaemonContainerOptions {
   roomStore?: RoomStore;
   messageStore?: MessageStore;
   docStore?: DocStore;
+  announcementStore?: AnnouncementStore;
   harnessRunStore?: HarnessRunStore;
   harnessSessionStore?: HarnessSessionStore;
 }
@@ -57,6 +62,7 @@ export interface DaemonContainer {
   readonly roomStore: RoomStore;
   readonly messageStore: MessageStore;
   readonly docStore: DocStore;
+  readonly announcementStore: AnnouncementStore;
   readonly harnessRunStore: HarnessRunStore;
   readonly harnessSessionStore: HarnessSessionStore;
   readonly uptimeMs: () => number;
@@ -85,6 +91,9 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
   const roomStore = options.roomStore ?? createMigratedRoomStore(database);
   const messageStore = options.messageStore ?? createMigratedMessageStore(database);
   const docStore = options.docStore ?? createMigratedDocStore(database);
+  const announcementStore =
+    options.announcementStore ??
+    (database ? createMigratedAnnouncementStore(database) : createUnavailableAnnouncementStore());
   const harnessRunStore = options.harnessRunStore ?? createMigratedHarnessRunStore(database);
   const harnessSessionStore =
     options.harnessSessionStore ?? createMigratedHarnessSessionStore(database);
@@ -102,6 +111,7 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
     roomStore,
     messageStore,
     docStore,
+    announcementStore,
     harnessRunStore,
     harnessSessionStore,
     uptimeMs: () => Math.max(0, now().getTime() - startedAt.getTime()),
@@ -163,6 +173,25 @@ function createMigratedDocStore(database: DatabaseHandle | null): DocStore {
 
   runMigrations(database);
   return createDocStore(database);
+}
+
+function createMigratedAnnouncementStore(database: DatabaseHandle): AnnouncementStore {
+  runMigrations(database);
+  return createAnnouncementStore(database);
+}
+
+function createUnavailableAnnouncementStore(): AnnouncementStore {
+  const unavailable = (): never => {
+    throw new Error("announcementStore is required when database is not provided");
+  };
+
+  return {
+    createAnnouncement: unavailable,
+    updateAnnouncement: unavailable,
+    deleteAnnouncement: unavailable,
+    getAnnouncement: () => undefined,
+    listAnnouncementsByRoom: () => [],
+  };
 }
 
 function createMigratedHarnessRunStore(database: DatabaseHandle | null): HarnessRunStore {

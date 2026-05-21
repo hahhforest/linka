@@ -29,6 +29,7 @@ import { DaemonDatabaseError } from "./event-store.js";
 
 export interface DocStore {
   createDoc(doc: Doc): Doc;
+  updateDoc?: (doc: Doc) => Doc;
   getDoc(id: Doc["id"]): Doc | undefined;
   listDocsByRoom(contextRoomId: RoomId): readonly Doc[];
   createRevision(revision: DocRevision): DocRevision;
@@ -305,6 +306,18 @@ export const createDocStore = (handle: DatabaseHandle): DocStore => {
     )
   `);
   const selectDoc = database.prepare("SELECT * FROM docs WHERE doc_id = ?");
+  const updateDoc = database.prepare(`
+    UPDATE docs
+    SET
+      title = @title,
+      format = @format,
+      status = @status,
+      body = @body,
+      updated_at = @updatedAt,
+      current_revision_id = @currentRevisionId,
+      visibility_json = @visibilityJson
+    WHERE doc_id = @id
+  `);
   const listDocsByRoom = database.prepare(`
     SELECT * FROM docs
     WHERE context_room_id = ?
@@ -443,6 +456,30 @@ export const createDocStore = (handle: DatabaseHandle): DocStore => {
       const row = selectDoc.get(doc.id) as DocRow | undefined;
       if (!row) {
         throw new Error("failed to read created doc");
+      }
+
+      return toDoc(row);
+    },
+
+    updateDoc: (doc) => {
+      const result = updateDoc.run({
+        id: doc.id,
+        title: doc.title,
+        format: doc.format,
+        status: doc.status,
+        body: doc.body,
+        updatedAt: doc.updatedAt,
+        currentRevisionId: doc.currentRevisionId ?? null,
+        visibilityJson: stringifyJson(doc.visibility, "doc visibility"),
+      });
+
+      if (result.changes !== 1) {
+        throw new Error("failed to update doc");
+      }
+
+      const row = selectDoc.get(doc.id) as DocRow | undefined;
+      if (!row) {
+        throw new Error("failed to read updated doc");
       }
 
       return toDoc(row);

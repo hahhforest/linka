@@ -283,6 +283,25 @@ ALTER TABLE room_messages ADD COLUMN trace_json TEXT;
 ALTER TABLE room_messages ADD COLUMN export_meta_json TEXT;
 `,
   },
+  {
+    version: 7,
+    name: "create_announcements",
+    sql: `
+CREATE TABLE IF NOT EXISTS announcements (
+  announcement_id TEXT PRIMARY KEY,
+  room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  title TEXT,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  created_by_member_id TEXT REFERENCES room_members(member_id),
+  visibility_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_announcements_room_updated
+  ON announcements (room_id, updated_at);
+`,
+  },
 ];
 
 export const runMigrations = (handle: DatabaseHandle): MigrationResult => {

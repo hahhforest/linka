@@ -167,11 +167,35 @@ withDocStore(({ docs, room, owner, reviewer }) => {
   assert.deepEqual(docs.listRevisions(doc.id), [revision]);
   assert.deepEqual(docs.getDoc(doc.id), { ...doc, currentRevisionId: revision.id });
 
+  const updatedDoc: Doc = {
+    ...doc,
+    title: "Updated Brief",
+    body: "# Updated\n\nSaved body.",
+    updatedAt: unixMs(1_716_000_000_030),
+    currentRevisionId: revision.id,
+  };
+  const updateDoc = docs.updateDoc;
+  assert.ok(updateDoc);
+  assert.deepEqual(updateDoc(updatedDoc), updatedDoc);
+  assert.deepEqual(docs.getDoc(doc.id), updatedDoc);
+
   const comment = makeComment(doc, revision, reviewer);
   assert.deepEqual(docs.createComment(comment), comment);
   assert.deepEqual(docs.listComments(doc.id), [comment]);
 
-  assert.deepEqual(docs.listDocsByRoom(room.id), [{ ...doc, currentRevisionId: revision.id }]);
+  assert.deepEqual(docs.listDocsByRoom(room.id), [updatedDoc]);
+});
+
+withDocStore(({ docs, owner }) => {
+  const missingDoc = makeDoc(owner);
+  const updateDoc = docs.updateDoc;
+
+  assert.ok(updateDoc);
+
+  assert.throws(
+    () => updateDoc({ ...missingDoc, id: docId("doc_missing") }),
+    /failed to update doc/,
+  );
 });
 
 withDocStore(({ handle, docs, room, owner }) => {

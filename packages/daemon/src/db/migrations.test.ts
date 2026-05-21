@@ -46,7 +46,7 @@ const handle = openDatabase({ databasePath: ":memory:" });
 
 try {
   const firstRun = runMigrations(handle);
-  assert.deepEqual(firstRun.appliedVersions, [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(firstRun.appliedVersions, [1, 2, 3, 4, 5, 6, 7]);
 
   const secondRun = runMigrations(handle);
   assert.deepEqual(secondRun.appliedVersions, []);
@@ -54,7 +54,7 @@ try {
   const migrationCount = handle.database
     .prepare("SELECT COUNT(*) AS count FROM linka_migrations")
     .get() as { count: number };
-  assert.equal(migrationCount.count, 6);
+  assert.equal(migrationCount.count, 7);
 
   for (const tableName of [
     "daemon_events",
@@ -69,6 +69,7 @@ try {
     "harness_run_events",
     "harness_sessions",
     "harness_triggers",
+    "announcements",
   ]) {
     assert.equal(hasTable(handle, tableName), true, tableName);
   }
@@ -92,6 +93,7 @@ try {
     "idx_harness_sessions_room_updated",
     "idx_harness_triggers_session_created",
     "idx_harness_triggers_room_status_created",
+    "idx_announcements_room_updated",
   ]) {
     assert.equal(hasIndex(handle, indexName), true, indexName);
   }
@@ -228,6 +230,17 @@ try {
     "attempt_count",
     "payload_json",
     "error",
+  ]);
+
+  assertColumns(handle, "announcements", [
+    "announcement_id",
+    "room_id",
+    "title",
+    "body",
+    "created_at",
+    "updated_at",
+    "created_by_member_id",
+    "visibility_json",
   ]);
 
   console.log("daemon db migrations: ok");

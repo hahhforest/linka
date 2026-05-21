@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import { createAnnouncementsRoute } from "./api/announcements.js";
 import { createDevEventsRoute } from "./api/dev-events.js";
 import { createDocsRoute } from "./api/docs.js";
 import { errorResponse, handleDaemonError } from "./api/errors.js";
@@ -29,6 +30,7 @@ export function createDaemonApp(
   linka.route("/", createDevEventsRoute(container));
   linka.route("/", createRoomsRoute(container, options.rooms));
   linka.route("/", createDocsRoute(container));
+  linka.route("/", createAnnouncementsRoute(container));
   linka.route("/", createHarnessRunsRoute(container));
   linka.route("/", createHarnessSessionsRoute(container));
 

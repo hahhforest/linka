@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import type { Doc, RoomMember } from "@linka/shared";
+import type { Announcement, DocStatus, RoomMember } from "@linka/shared";
 
 import { useRoomStore } from "../../store/roomStore.js";
 
@@ -85,21 +85,26 @@ const permissionSummary = (member: RoomMember): string => {
   return enabled.length > 0 ? enabled.join(" / ") : "只读";
 };
 
-const renderDocBody = (doc: Doc): readonly string[] =>
-  doc.body
-    .split(/\r?\n/u)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .slice(0, 10);
-
 export const MemberRail = () => {
   const [activeTab, setActiveTab] = useState<RailTab>("info");
   const [selectedMemberId, setSelectedMemberId] = useState<string | undefined>();
   const [selectedDocId, setSelectedDocId] = useState<string | undefined>();
   const [docTitle, setDocTitle] = useState("");
   const [docBody, setDocBody] = useState("");
+  const [docEditTitle, setDocEditTitle] = useState("");
+  const [docEditBody, setDocEditBody] = useState("");
+  const [docEditStatus, setDocEditStatus] = useState<DocStatus>("active");
+  const [docCommentBody, setDocCommentBody] = useState("");
+  const [isSavingDoc, setIsSavingDoc] = useState(false);
+  const [isCommentingDoc, setIsCommentingDoc] = useState(false);
   const [handoffToLinkA, setHandoffToLinkA] = useState(true);
+  const [announcementTitle, setAnnouncementTitle] = useState("");
+  const [announcementBody, setAnnouncementBody] = useState("");
+  const [editingAnnouncementId, setEditingAnnouncementId] = useState<string | undefined>();
+  const [isSavingAnnouncement, setIsSavingAnnouncement] = useState(false);
+  const [deletingAnnouncementId, setDeletingAnnouncementId] = useState<string | undefined>();
   const activeRoomId = useRoomStore((state) => state.activeRoomId);
+  const source = useRoomStore((state) => state.source);
   const room = useRoomStore((state) =>
     state.rooms.find((candidate) => candidate.id === activeRoomId),
   );
@@ -129,15 +134,51 @@ export const MemberRail = () => {
       ? (state.announcementsByRoomId[activeRoomId] ?? emptyAnnouncements)
       : emptyAnnouncements,
   );
+  const docDetailsByDocId = useRoomStore((state) => state.docDetailsByDocId);
   const isCreatingDoc = useRoomStore((state) => state.isCreatingDoc);
   const createActiveRoomDoc = useRoomStore((state) => state.createActiveRoomDoc);
+  const loadActiveRoomDocDetail = useRoomStore((state) => state.loadActiveRoomDocDetail);
+  const updateActiveRoomDoc = useRoomStore((state) => state.updateActiveRoomDoc);
+  const createActiveDocComment = useRoomStore((state) => state.createActiveDocComment);
+  const createActiveRoomAnnouncement = useRoomStore((state) => state.createActiveRoomAnnouncement);
+  const updateActiveRoomAnnouncement = useRoomStore((state) => state.updateActiveRoomAnnouncement);
+  const deleteActiveRoomAnnouncement = useRoomStore((state) => state.deleteActiveRoomAnnouncement);
   const trimmedDocTitle = docTitle.trim();
+  const trimmedDocEditTitle = docEditTitle.trim();
+  const trimmedDocCommentBody = docCommentBody.trim();
+  const trimmedAnnouncementBody = announcementBody.trim();
   const selectedMember = members.find((member) => member.id === selectedMemberId);
   const selectedDoc = docs.find((doc) => doc.id === selectedDocId) ?? docs[0];
+  const selectedDocDetail = selectedDoc ? docDetailsByDocId[selectedDoc.id] : undefined;
+  const editingAnnouncement = announcements.find(
+    (announcement) => announcement.id === editingAnnouncementId,
+  );
+  const isApiBacked = source === "api";
   const recentSessions = [...sessions]
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .slice(0, 4);
   const recentRuns = [...runs].sort((left, right) => right.createdAt - left.createdAt).slice(0, 4);
+
+  useEffect(() => {
+    if (!selectedDoc) return;
+
+    setDocEditTitle(selectedDoc.title);
+    setDocEditBody(selectedDoc.body);
+    setDocEditStatus(selectedDoc.status);
+  }, [selectedDoc]);
+
+  useEffect(() => {
+    if (!selectedDoc || !isApiBacked || selectedDocDetail) return;
+
+    void loadActiveRoomDocDetail(selectedDoc.id);
+  }, [isApiBacked, loadActiveRoomDocDetail, selectedDoc, selectedDocDetail]);
+
+  useEffect(() => {
+    if (!editingAnnouncement) return;
+
+    setAnnouncementTitle(editingAnnouncement.title ?? "");
+    setAnnouncementBody(editingAnnouncement.body);
+  }, [editingAnnouncement]);
 
   return (
     <aside className="linka-scrollbar min-h-0 overflow-y-auto border-t border-line bg-[#f7f0e3]/90 p-3 lg:border-l lg:border-t-0">
@@ -282,22 +323,118 @@ export const MemberRail = () => {
         <section className="mt-4 grid gap-3">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold">公告板</h2>
-            <button
-              className="rounded-md border border-line bg-panel px-2 py-1 text-xs text-muted disabled:cursor-not-allowed disabled:opacity-70"
-              type="button"
-              disabled
-              title="公告编辑将在 Phase 30 接入"
-            >
-              编辑
-            </button>
+            <span className="font-mono text-[11px] text-muted">{announcements.length}</span>
           </div>
+          <form
+            className="grid gap-2 rounded-md border border-line bg-panel/72 p-2.5 shadow-sketch"
+            onSubmit={(event) => {
+              event.preventDefault();
+
+              if (!isApiBacked || trimmedAnnouncementBody.length === 0 || isSavingAnnouncement) {
+                return;
+              }
+
+              setIsSavingAnnouncement(true);
+              const title = announcementTitle.trim();
+              const body = trimmedAnnouncementBody;
+              const save = editingAnnouncementId
+                ? updateActiveRoomAnnouncement(editingAnnouncementId as Announcement["id"], {
+                    title: title.length > 0 ? title : null,
+                    body,
+                  })
+                : createActiveRoomAnnouncement({
+                    ...(title.length > 0 ? { title } : {}),
+                    body,
+                  });
+
+              void save
+                .finally(() => setIsSavingAnnouncement(false))
+                .then((announcement) => {
+                  if (!announcement) return;
+                  setAnnouncementTitle("");
+                  setAnnouncementBody("");
+                  setEditingAnnouncementId(undefined);
+                });
+            }}
+          >
+            <input
+              className="min-w-0 rounded-md border border-line bg-[#fbf7ed] px-2.5 py-2 text-sm text-ink placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-70"
+              maxLength={80}
+              placeholder="公告标题"
+              type="text"
+              value={announcementTitle}
+              disabled={!isApiBacked || isSavingAnnouncement}
+              onChange={(event) => setAnnouncementTitle(event.target.value)}
+            />
+            <textarea
+              className="min-h-20 resize-none rounded-md border border-line bg-[#fbf7ed] px-2.5 py-2 text-sm leading-5 text-ink placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-70"
+              maxLength={360}
+              placeholder={isApiBacked ? "公告内容" : "需要连接 LinkA daemon 后才能写入公告"}
+              value={announcementBody}
+              disabled={!isApiBacked || isSavingAnnouncement}
+              onChange={(event) => setAnnouncementBody(event.target.value)}
+            />
+            <div className="flex gap-2">
+              <button
+                className="flex-1 rounded-md bg-ink px-3 py-1.5 text-sm font-semibold text-white shadow-sketch hover:bg-linka disabled:cursor-not-allowed disabled:bg-muted"
+                type="submit"
+                disabled={
+                  !isApiBacked || trimmedAnnouncementBody.length === 0 || isSavingAnnouncement
+                }
+              >
+                {isSavingAnnouncement ? "保存中" : editingAnnouncementId ? "保存公告" : "创建公告"}
+              </button>
+              {editingAnnouncementId ? (
+                <button
+                  className="rounded-md border border-line bg-panel px-3 py-1.5 text-sm text-muted hover:border-linka hover:text-linka"
+                  type="button"
+                  disabled={isSavingAnnouncement}
+                  onClick={() => {
+                    setEditingAnnouncementId(undefined);
+                    setAnnouncementTitle("");
+                    setAnnouncementBody("");
+                  }}
+                >
+                  取消
+                </button>
+              ) : null}
+            </div>
+          </form>
           {announcements.length > 0 ? (
             announcements.map((announcement) => (
               <article
                 key={announcement.id}
                 className="rounded-md border border-line bg-[#fff8df] p-2.5 shadow-sketch"
               >
-                <h3 className="text-sm font-semibold">{announcement.title ?? "公告"}</h3>
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="min-w-0 break-words text-sm font-semibold">
+                    {announcement.title ?? "公告"}
+                  </h3>
+                  <div className="flex shrink-0 gap-1">
+                    <button
+                      className="rounded-md border border-line bg-panel px-2 py-0.5 text-[11px] text-muted hover:border-linka hover:text-linka disabled:cursor-not-allowed disabled:opacity-70"
+                      type="button"
+                      disabled={!isApiBacked || isSavingAnnouncement}
+                      onClick={() => setEditingAnnouncementId(announcement.id)}
+                    >
+                      编辑
+                    </button>
+                    <button
+                      className="rounded-md border border-danger/30 bg-panel px-2 py-0.5 text-[11px] text-danger disabled:cursor-not-allowed disabled:opacity-70"
+                      type="button"
+                      disabled={!isApiBacked || deletingAnnouncementId === announcement.id}
+                      onClick={() => {
+                        if (!isApiBacked) return;
+                        setDeletingAnnouncementId(announcement.id);
+                        void deleteActiveRoomAnnouncement(announcement.id).finally(() =>
+                          setDeletingAnnouncementId(undefined),
+                        );
+                      }}
+                    >
+                      {deletingAnnouncementId === announcement.id ? "删除中" : "删除"}
+                    </button>
+                  </div>
+                </div>
                 <p className="mt-2 break-words text-xs leading-5 text-muted">{announcement.body}</p>
               </article>
             ))
@@ -306,9 +443,11 @@ export const MemberRail = () => {
               暂无公告。
             </p>
           )}
-          <p className="rounded-md border border-caution/30 bg-[#fff3d8] p-2.5 text-xs leading-5 text-caution">
-            公告是 Room 的长期信息。编辑和删除会在 Doc/Announcement CRUD 阶段接入。
-          </p>
+          {!isApiBacked ? (
+            <p className="rounded-md border border-caution/30 bg-[#fff3d8] p-2.5 text-xs leading-5 text-caution">
+              当前是 fallback 数据，公告写入需要启动 LinkA daemon。
+            </p>
+          ) : null}
         </section>
       ) : null}
 
@@ -434,25 +573,155 @@ export const MemberRail = () => {
                   {selectedDoc.status}
                 </span>
               </div>
-              <div className="mt-3 grid gap-2 text-xs leading-5 text-muted">
-                {renderDocBody(selectedDoc).map((line, index) =>
-                  /^#{1,3}\s/u.test(line) ? (
-                    <h4
-                      key={`${selectedDoc.id}-${index}`}
-                      className="text-sm font-semibold text-ink"
-                    >
-                      {line.replace(/^#{1,3}\s/u, "")}
-                    </h4>
-                  ) : (
-                    <p key={`${selectedDoc.id}-${index}`} className="break-words">
-                      {line}
-                    </p>
-                  ),
+              <form
+                className="mt-3 grid gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+
+                  if (!isApiBacked || trimmedDocEditTitle.length === 0 || isSavingDoc) return;
+
+                  setIsSavingDoc(true);
+                  void updateActiveRoomDoc(selectedDoc.id, {
+                    title: trimmedDocEditTitle,
+                    body: docEditBody,
+                    status: docEditStatus,
+                    summary: "Saved from MemberRail",
+                  })
+                    .then((doc) => {
+                      if (doc) setSelectedDocId(doc.id);
+                    })
+                    .finally(() => setIsSavingDoc(false));
+                }}
+              >
+                <input
+                  className="min-w-0 rounded-md border border-line bg-[#fbf7ed] px-2.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-70"
+                  maxLength={100}
+                  value={docEditTitle}
+                  disabled={!isApiBacked || isSavingDoc}
+                  onChange={(event) => setDocEditTitle(event.target.value)}
+                />
+                <textarea
+                  className="min-h-36 resize-y rounded-md border border-line bg-[#fbf7ed] px-2.5 py-2 text-sm leading-5 text-ink disabled:cursor-not-allowed disabled:opacity-70"
+                  value={docEditBody}
+                  disabled={!isApiBacked || isSavingDoc}
+                  onChange={(event) => setDocEditBody(event.target.value)}
+                />
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <select
+                    className="min-w-0 rounded-md border border-line bg-[#fbf7ed] px-2.5 py-1.5 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-70"
+                    value={docEditStatus}
+                    disabled={!isApiBacked || isSavingDoc}
+                    onChange={(event) => setDocEditStatus(event.target.value as DocStatus)}
+                  >
+                    <option value="draft">draft</option>
+                    <option value="active">active</option>
+                    <option value="archived">archived</option>
+                  </select>
+                  <button
+                    className="rounded-md bg-ink px-3 py-1.5 text-sm font-semibold text-white shadow-sketch hover:bg-linka disabled:cursor-not-allowed disabled:bg-muted"
+                    type="submit"
+                    disabled={!isApiBacked || trimmedDocEditTitle.length === 0 || isSavingDoc}
+                  >
+                    {isSavingDoc ? "保存中" : "保存"}
+                  </button>
+                </div>
+              </form>
+
+              <form
+                className="mt-3 grid gap-2 rounded-md border border-line bg-[#fbf7ed] p-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+
+                  if (!isApiBacked || trimmedDocCommentBody.length === 0 || isCommentingDoc) {
+                    return;
+                  }
+
+                  setIsCommentingDoc(true);
+                  void createActiveDocComment(selectedDoc.id, { body: trimmedDocCommentBody })
+                    .then((comment) => {
+                      if (comment) setDocCommentBody("");
+                    })
+                    .finally(() => setIsCommentingDoc(false));
+                }}
+              >
+                <textarea
+                  className="min-h-16 resize-none rounded-md border border-line bg-panel px-2.5 py-2 text-sm leading-5 text-ink placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-70"
+                  maxLength={240}
+                  placeholder={isApiBacked ? "添加评论" : "需要连接 LinkA daemon 后才能评论"}
+                  value={docCommentBody}
+                  disabled={!isApiBacked || isCommentingDoc}
+                  onChange={(event) => setDocCommentBody(event.target.value)}
+                />
+                <button
+                  className="rounded-md border border-linka/35 bg-[#f0ecff] px-3 py-1.5 text-sm font-semibold text-linka disabled:cursor-not-allowed disabled:opacity-60"
+                  type="submit"
+                  disabled={!isApiBacked || trimmedDocCommentBody.length === 0 || isCommentingDoc}
+                >
+                  {isCommentingDoc ? "发送中" : "评论"}
+                </button>
+              </form>
+
+              <div className="mt-3 grid gap-2">
+                <h4 className="font-mono text-[11px] uppercase text-muted">
+                  Versions ({selectedDocDetail?.revisions.length ?? 0})
+                </h4>
+                {selectedDocDetail?.revisions.length ? (
+                  selectedDocDetail.revisions
+                    .slice()
+                    .reverse()
+                    .map((revision) => (
+                      <article
+                        key={revision.id}
+                        className="rounded-md border border-line bg-[#fbf7ed] p-2 text-xs leading-5 text-muted"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-ink">v{revision.revisionNumber}</span>
+                          <time dateTime={new Date(revision.createdAt).toISOString()}>
+                            {formatShortTime(revision.createdAt)}
+                          </time>
+                        </div>
+                        <p className="mt-1 break-words">
+                          {revision.summary ?? revision.title ?? "committed"}
+                        </p>
+                      </article>
+                    ))
+                ) : (
+                  <p className="rounded-md border border-line bg-[#fbf7ed] p-2 text-xs text-muted">
+                    {isApiBacked ? "暂无版本记录" : "fallback 模式不加载版本记录"}
+                  </p>
                 )}
               </div>
-              <p className="mt-3 rounded-md border border-caution/30 bg-[#fff3d8] p-2 text-xs leading-5 text-caution">
-                编辑、评论和版本写入将在 Phase 30 接入；当前视图用于浏览和确认 Doc 内容。
-              </p>
+
+              <div className="mt-3 grid gap-2">
+                <h4 className="font-mono text-[11px] uppercase text-muted">
+                  Comments ({selectedDocDetail?.comments.length ?? 0})
+                </h4>
+                {selectedDocDetail?.comments.length ? (
+                  selectedDocDetail.comments.map((comment) => (
+                    <article
+                      key={comment.id}
+                      className="rounded-md border border-line bg-[#fbf7ed] p-2 text-xs leading-5 text-muted"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-ink">{comment.status}</span>
+                        <time dateTime={new Date(comment.createdAt).toISOString()}>
+                          {formatShortTime(comment.createdAt)}
+                        </time>
+                      </div>
+                      <p className="mt-1 break-words">{comment.body}</p>
+                    </article>
+                  ))
+                ) : (
+                  <p className="rounded-md border border-line bg-[#fbf7ed] p-2 text-xs text-muted">
+                    暂无评论
+                  </p>
+                )}
+              </div>
+              {!isApiBacked ? (
+                <p className="mt-3 rounded-md border border-caution/30 bg-[#fff3d8] p-2 text-xs leading-5 text-caution">
+                  当前是 fallback 数据，Doc 编辑、评论和版本加载需要启动 LinkA daemon。
+                </p>
+              ) : null}
             </section>
           ) : null}
         </section>
