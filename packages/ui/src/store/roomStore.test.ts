@@ -4,6 +4,9 @@ import {
   docId,
   harnessRunId,
   harnessSessionId,
+  participantId,
+  roomId,
+  roomMemberId,
   runtimeEventId,
   runtimeSessionId,
   unixMs,
@@ -50,6 +53,7 @@ const resetStore = (): void => {
     pinnedItemsByRoomId: {},
     source: "checking",
     isLoading: true,
+    isCreatingRoom: false,
     isSending: false,
     isCreatingDoc: false,
     errorMessage: undefined,
@@ -344,6 +348,112 @@ await withMockFetch(
 
 console.log("room store api path: ok");
 
+const createdDefaultsRoom = {
+  ...apiRoom,
+  id: roomId("room_store_created_defaults"),
+  displayName: "Created Defaults",
+  topic: "created from UI modal",
+};
+const createdDefaultsMembers = [
+  {
+    ...apiMembers[0],
+    id: roomMemberId("rmem_created_defaults_human"),
+    roomId: createdDefaultsRoom.id,
+    participantId: participantId("part_created_defaults_human"),
+    displayName: "Alice",
+  },
+  {
+    ...apiMembers[1],
+    id: roomMemberId("rmem_created_defaults_linka"),
+    roomId: createdDefaultsRoom.id,
+    participantId: participantId("part_created_defaults_linka"),
+    displayName: "LinkA",
+  },
+] as const;
+const createRoomRequests: CapturedRequest[] = [];
+const createRoomResponses = [
+  makeJsonResponse({ ok: true, room: createdDefaultsRoom }, 201),
+  makeJsonResponse({ ok: true, member: createdDefaultsMembers[0] }, 201),
+  makeJsonResponse({ ok: true, member: createdDefaultsMembers[1] }, 201),
+  makeJsonResponse({ ok: true, members: createdDefaultsMembers }),
+  makeJsonResponse({ ok: true, messages: [] }),
+  makeJsonResponse({ ok: true, docs: [] }),
+  makeJsonResponse({ ok: true, runs: [] }),
+  makeJsonResponse({ ok: true, sessions: [] }),
+];
+
+await withMockFetch(
+  async (input, init = {}) => {
+    createRoomRequests.push({ input: String(input), init });
+    const response = createRoomResponses.shift();
+
+    if (!response) {
+      throw new Error(`unexpected create room fetch call: ${String(input)}`);
+    }
+
+    return response;
+  },
+  async () => {
+    resetStore();
+    useRoomStore.setState({
+      rooms: [apiRoom],
+      activeRoomId: apiRoom.id,
+      membersByRoomId: { [apiRoom.id]: apiMembers },
+      source: "api",
+      isLoading: false,
+      isCreatingRoom: false,
+      errorMessage: undefined,
+    });
+
+    const created = await useRoomStore.getState().createRoomWithDefaults({
+      displayName: " Created Defaults ",
+      topic: " created from UI modal ",
+    });
+    const state = useRoomStore.getState();
+
+    assert.equal(created?.id, createdDefaultsRoom.id);
+    assert.equal(state.activeRoomId, createdDefaultsRoom.id);
+    assert.deepEqual(
+      state.rooms.map((room) => room.id),
+      [createdDefaultsRoom.id, apiRoom.id],
+    );
+    assert.deepEqual(state.membersByRoomId[createdDefaultsRoom.id], createdDefaultsMembers);
+    assert.equal(state.isCreatingRoom, false);
+    assert.equal(state.errorMessage, undefined);
+  },
+);
+
+assert.deepEqual(
+  createRoomRequests.map((request) => `${request.init.method ?? "GET"} ${request.input}`),
+  [
+    "POST /linka/rooms",
+    `POST /linka/rooms/${createdDefaultsRoom.id}/members`,
+    `POST /linka/rooms/${createdDefaultsRoom.id}/members`,
+    `GET /linka/rooms/${createdDefaultsRoom.id}/members`,
+    `GET /linka/rooms/${createdDefaultsRoom.id}/messages?afterSequence=0&limit=500`,
+    `GET /linka/rooms/${createdDefaultsRoom.id}/docs`,
+    `GET /linka/rooms/${createdDefaultsRoom.id}/harness-runs`,
+    `GET /linka/rooms/${createdDefaultsRoom.id}/harness-sessions`,
+  ],
+);
+assert.deepEqual(JSON.parse(String(createRoomRequests[0]?.init.body)), {
+  displayName: "Created Defaults",
+  topic: "created from UI modal",
+});
+assert.deepEqual(JSON.parse(String(createRoomRequests[1]?.init.body)), {
+  kind: "human",
+  role: "owner",
+  displayName: "Alice",
+});
+assert.deepEqual(JSON.parse(String(createRoomRequests[2]?.init.body)), {
+  kind: "agent",
+  role: "admin",
+  displayName: "LinkA",
+});
+assert.equal(createRoomResponses.length, 0);
+
+console.log("room store create room defaults: ok");
+
 const handoffDoc: Doc = {
   ...createdApiDoc,
   id: docId("doc_room_store_handoff"),
@@ -396,6 +506,7 @@ await withMockFetch(
       pinnedItemsByRoomId: { [apiRoom.id]: [] },
       source: "api",
       isLoading: false,
+      isCreatingRoom: false,
       isSending: false,
       isCreatingDoc: false,
       errorMessage: undefined,
@@ -449,6 +560,7 @@ const resetStoreForRealtimeEvents = (): void => {
     pinnedItemsByRoomId: { [demoRoom.room.id]: [] },
     source: "api",
     isLoading: false,
+    isCreatingRoom: false,
     isSending: false,
     isCreatingDoc: false,
     errorMessage: undefined,

@@ -61,11 +61,16 @@ export interface RoomState {
   readonly pinnedItemsByRoomId: Readonly<Record<string, readonly PinnedItem[]>>;
   readonly source: RoomDataSource;
   readonly isLoading: boolean;
+  readonly isCreatingRoom: boolean;
   readonly isSending: boolean;
   readonly isCreatingDoc: boolean;
   readonly errorMessage?: string;
   readonly appliedRoomEventKeys: readonly string[];
   readonly initializeRoomWorkspace: () => Promise<void>;
+  readonly createRoomWithDefaults: (input: {
+    readonly displayName: string;
+    readonly topic?: string;
+  }) => Promise<Room | undefined>;
   readonly selectRoom: (roomId: RoomId) => Promise<void>;
   readonly refreshActiveRoom: () => Promise<void>;
   readonly applyRoomEvent: (event: RealtimeRoomEvent) => void;
@@ -74,7 +79,7 @@ export interface RoomState {
     readonly title: string;
     readonly body?: string;
     readonly notifyLinkA?: boolean;
-  }) => Promise<void>;
+  }) => Promise<Doc | undefined>;
 }
 
 const fallbackRooms = [demoRoom.room];
@@ -139,6 +144,7 @@ const loadFallback = (set: (state: Partial<RoomState>) => void, error?: unknown)
     pinnedItemsByRoomId: fallbackPinnedItemsByRoomId,
     source: "fallback",
     isLoading: false,
+    isCreatingRoom: false,
     isSending: false,
     isCreatingDoc: false,
     errorMessage,
@@ -296,6 +302,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   pinnedItemsByRoomId: {},
   source: "checking",
   isLoading: true,
+  isCreatingRoom: false,
   isSending: false,
   isCreatingDoc: false,
   errorMessage: undefined,
@@ -336,12 +343,80 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       loadFallback(set, error);
     }
   },
+  createRoomWithDefaults: async (input) => {
+    const displayName = input.displayName.trim();
+    const topic = input.topic?.trim();
+
+    if (displayName.length === 0) {
+      set({ isCreatingRoom: false, errorMessage: "Room name is required" });
+      return undefined;
+    }
+
+    const state = get();
+    if (state.source !== "api") {
+      set({
+        isCreatingRoom: false,
+        errorMessage: "Creating rooms requires a running LinkA daemon",
+      });
+      return undefined;
+    }
+
+    set({ isCreatingRoom: true, errorMessage: undefined });
+
+    try {
+      const room = await createRoom({
+        displayName,
+        ...(topic && topic.length > 0 ? { topic } : {}),
+      });
+
+      await addRoomMember(room.id, {
+        kind: "human",
+        role: "owner",
+        displayName: "Alice",
+      });
+      await addRoomMember(room.id, {
+        kind: "agent",
+        role: "admin",
+        displayName: "LinkA",
+      });
+
+      const { members, messages, docs, harnessRuns, harnessSessions, runtimeEventsByRunId } =
+        await loadApiRoomData(room);
+
+      set((current) => ({
+        rooms: current.rooms.some((candidate) => candidate.id === room.id)
+          ? current.rooms.map((candidate) => (candidate.id === room.id ? room : candidate))
+          : [room, ...current.rooms],
+        activeRoomId: room.id,
+        membersByRoomId: { ...current.membersByRoomId, [room.id]: members },
+        messagesByRoomId: { ...current.messagesByRoomId, [room.id]: messages },
+        docsByRoomId: { ...current.docsByRoomId, [room.id]: docs },
+        harnessRunsByRoomId: { ...current.harnessRunsByRoomId, [room.id]: harnessRuns },
+        harnessSessionsByRoomId: {
+          ...current.harnessSessionsByRoomId,
+          [room.id]: harnessSessions,
+        },
+        runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
+        filesByRoomId: { ...current.filesByRoomId, [room.id]: [] },
+        announcementsByRoomId: { ...current.announcementsByRoomId, [room.id]: [] },
+        pinnedItemsByRoomId: { ...current.pinnedItemsByRoomId, [room.id]: [] },
+        isCreatingRoom: false,
+        errorMessage: undefined,
+      }));
+
+      return room;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unable to create room";
+      set({ isCreatingRoom: false, errorMessage });
+      return undefined;
+    }
+  },
   selectRoom: async (roomId) => {
     const state = get();
     const room = state.rooms.find((candidate) => candidate.id === roomId);
 
     if (!room) {
-      return;
+      return undefined;
     }
 
     set({ activeRoomId: roomId });
@@ -616,7 +691,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
             isCreatingDoc: false,
             errorMessage: "No active LinkA agent available",
           }));
-          return;
+          return doc;
         }
 
         await sendRoomMessage(room.id, {
@@ -646,7 +721,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           isCreatingDoc: false,
           errorMessage: undefined,
         }));
-        return;
+        return doc;
       }
 
       set((current) => ({
@@ -657,9 +732,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         isCreatingDoc: false,
         errorMessage: undefined,
       }));
+      return doc;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unable to create room doc";
       set({ isCreatingDoc: false, errorMessage });
+      return undefined;
     }
   },
 }));

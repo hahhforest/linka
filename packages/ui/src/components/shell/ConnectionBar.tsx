@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { useConnectionStore, type DaemonConnectionStatus } from "../../store/connectionStore.js";
 import { useRealtimeStore, type RealtimeConnectionStatus } from "../../store/realtimeStore.js";
 
@@ -22,7 +24,11 @@ const realtimeStatusLabel: Record<RealtimeConnectionStatus, string> = {
   error: "sse error",
 };
 
+const daemonCommand = "pnpm dev";
+
 export const ConnectionBar = () => {
+  const [showDaemonHelp, setShowDaemonHelp] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const status = useConnectionStore((state) => state.status);
   const health = useConnectionStore((state) => state.health);
   const checkDaemonConnection = useConnectionStore((state) => state.checkDaemonConnection);
@@ -30,7 +36,7 @@ export const ConnectionBar = () => {
   const realtimeLastCursor = useRealtimeStore((state) => state.lastCursor);
 
   return (
-    <header className="grid min-h-[46px] grid-cols-1 items-center gap-3 border-b border-line bg-panel/88 px-3 py-2 backdrop-blur md:grid-cols-[minmax(190px,1fr)_minmax(260px,520px)_auto] md:px-4">
+    <header className="relative grid min-h-[46px] grid-cols-1 items-center gap-3 border-b border-line bg-panel/88 px-3 py-2 backdrop-blur md:grid-cols-[minmax(190px,1fr)_minmax(260px,520px)_auto] md:px-4">
       <div className="flex min-w-0 items-center gap-3">
         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-linka/35 bg-[#f0ecff] text-sm font-semibold text-linka shadow-sketch">
           ✧
@@ -59,6 +65,13 @@ export const ConnectionBar = () => {
         >
           刷新
         </button>
+        <button
+          className="rounded-md border border-line bg-[#fbf7ed] px-3 py-1.5 text-xs font-semibold text-ink hover:border-linka hover:text-linka"
+          type="button"
+          onClick={() => setShowDaemonHelp((current) => !current)}
+        >
+          启动说明
+        </button>
         <span className={`h-2.5 w-2.5 rounded-full ${statusClassName[status]}`} />
         <div className="flex items-center gap-2 rounded-md border border-line bg-panel px-2 py-1 shadow-sketch">
           <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[#f4d9ca] text-sm font-semibold text-danger">
@@ -67,6 +80,44 @@ export const ConnectionBar = () => {
           <span className="text-sm font-semibold">Alice</span>
         </div>
       </div>
+
+      {showDaemonHelp ? (
+        <div className="absolute right-3 top-[calc(100%+8px)] z-20 w-[min(360px,calc(100vw-24px))] rounded-md border border-line bg-panel p-3 shadow-rail">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">启动本地 LinkA</h2>
+            <button
+              className="rounded-md border border-line bg-[#fbf7ed] px-2 py-1 text-xs text-muted hover:border-linka hover:text-linka"
+              type="button"
+              onClick={() => setShowDaemonHelp(false)}
+            >
+              关闭
+            </button>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-muted">
+            在当前仓库根目录运行开发栈，然后回到这里刷新连接。Web UI 会通过 Vite proxy 访问 daemon。
+          </p>
+          <pre className="mt-2 overflow-auto rounded-md border border-line bg-[#fbf7ed] px-3 py-2 font-mono text-xs text-ink">
+            {daemonCommand}
+          </pre>
+          <button
+            className="mt-2 rounded-md bg-ink px-3 py-1.5 text-xs font-semibold text-white hover:bg-linka"
+            type="button"
+            onClick={() => {
+              void navigator.clipboard
+                ?.writeText(daemonCommand)
+                .then(() => setCopyState("copied"))
+                .catch(() => setCopyState("failed"));
+            }}
+          >
+            复制启动命令
+          </button>
+          {copyState !== "idle" ? (
+            <p className="mt-2 text-xs text-muted">
+              {copyState === "copied" ? "已复制。" : "复制失败，请手动选中命令。"}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </header>
   );
 };
