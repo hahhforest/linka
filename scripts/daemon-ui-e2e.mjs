@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -17,6 +17,9 @@ const announcementTitle = `Phase 33 E2E Notice ${Date.now()}`;
 const announcementBody = "Initial daemon-backed announcement body.";
 const editedAnnouncementTitle = `${announcementTitle} Edited`;
 const editedAnnouncementBody = "Edited daemon-backed announcement body.";
+const trajectorySeedSuffix = `${process.pid}_${Date.now()}`;
+const trajectoryExportSummary = `Phase 34 trajectory export fixture answer ${trajectorySeedSuffix}`;
+let seededTrajectoryExport;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -296,16 +299,223 @@ const pageEvaluate = async (page, expression, label) => {
 
 const js = (value) => JSON.stringify(value);
 
+const json = (value) => JSON.stringify(value);
+
+const requestJson = async (url, label, options = {}) => {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      Accept: "application/json",
+      ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`${label} failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+};
+
+const getProfileDatabasePath = (linkaHome, profile) =>
+  join(linkaHome, "profiles", profile, "linka.sqlite");
+
+const sqlValue = (value) => {
+  if (value === null || value === undefined) return "NULL";
+  return `'${String(value).replaceAll("'", "''")}'`;
+};
+
+const sqlJson = (value) => sqlValue(json(value));
+
+const runDaemonSqliteScript = (databasePath, sql) => {
+  const script = `
+    import Database from "better-sqlite3";
+    const database = new Database(process.argv[1]);
+    database.pragma("foreign_keys = ON");
+    try {
+      database.exec(process.argv[2]);
+    } finally {
+      database.close();
+    }
+  `;
+  const result = spawnSync(
+    "pnpm",
+    [
+      "--filter",
+      "@linka/daemon",
+      "exec",
+      "node",
+      "--input-type=module",
+      "-e",
+      script,
+      databasePath,
+      sql,
+    ],
+    { cwd: process.cwd(), encoding: "utf8", env: process.env },
+  );
+
+  if (result.error) {
+    throw result.error;
+  }
+
+  if (result.status !== 0) {
+    throw new Error(
+      `sqlite seed failed with code ${result.status}: ${result.stderr || result.stdout || "<empty>"}`,
+    );
+  }
+};
+
+const seedTrajectoryExportFixture = async ({ daemonUrl, linkaHome, profile }) => {
+  const roomsBody = await requestJson(`${daemonUrl}/linka/rooms`, "list rooms before run seed");
+  const room = roomsBody.rooms?.find((candidate) => candidate.displayName === roomName);
+
+  if (!room) {
+    throw new Error(`unable to seed trajectory export: created room not found (${roomName})`);
+  }
+
+  const membersBody = await requestJson(
+    `${daemonUrl}/linka/rooms/${room.id}/members`,
+    "list room members before run seed",
+  );
+  const human = membersBody.members?.find((member) => member.kind === "human");
+  const agent = membersBody.members?.find((member) => member.kind === "agent");
+
+  if (!human || !agent) {
+    throw new Error("unable to seed trajectory export: room needs human and agent members");
+  }
+
+  const now = Date.now();
+  const runId = `hrun_phase34_export_${trajectorySeedSuffix}`;
+  const snapshotId = `hctx_phase34_export_${trajectorySeedSuffix}`;
+  const runtimeSessionId = `rsess_phase34_export_${trajectorySeedSuffix}`;
+  const sourceMessageId = `rmsg_phase34_export_source_${trajectorySeedSuffix}`;
+  const outputMessageId = `rmsg_phase34_export_output_${trajectorySeedSuffix}`;
+  const databasePath = getProfileDatabasePath(linkaHome, profile);
+  const projection = {
+    roomId: room.id,
+    agentMemberId: agent.id,
+    messages: [{ id: sourceMessageId, text: `@${agent.displayName} verify trajectory export` }],
+    docs: [],
+  };
+  const visibility = { scope: "room" };
+  const notification = { level: "normal" };
+  const sourceText = `@${agent.displayName} verify trajectory export`;
+  const sql = `
+    BEGIN IMMEDIATE;
+    INSERT INTO runtime_sessions (runtime_session_id, kind, adapter_session_id, label)
+    VALUES (${sqlValue(runtimeSessionId)}, 'test', ${sqlValue(`phase34-${trajectorySeedSuffix}`)}, 'Phase 34 E2E runtime');
+
+    INSERT INTO room_messages (
+      message_id, room_id, sequence, sender_json, kind, created_at, edited_at, text,
+      content_json, llm_role, thread_json, mentions_json, reply_to_json, references_json,
+      attachments_json, evidence_json, trace_json, export_meta_json, visibility_json,
+      notification_json
+    ) VALUES (
+      ${sqlValue(sourceMessageId)}, ${sqlValue(room.id)},
+      (SELECT COALESCE(MAX(sequence), 0) + 1 FROM room_messages WHERE room_id = ${sqlValue(room.id)}),
+      ${sqlJson({ kind: "member", memberId: human.id })}, 'text', ${now - 2800}, NULL,
+      ${sqlValue(sourceText)}, NULL, 'user', NULL,
+      ${sqlJson([{ memberId: agent.id, displayText: `@${agent.displayName}` }])}, NULL, NULL,
+      NULL, NULL, NULL, NULL, ${sqlJson(visibility)}, ${sqlJson(notification)}
+    );
+
+    INSERT INTO harness_runs (
+      harness_run_id, room_id, target_member_id, status, runtime_session_id, created_at,
+      updated_at, started_at, completed_at, trigger_message_id, doc_ids_json, summary, error
+    ) VALUES (
+      ${sqlValue(runId)}, ${sqlValue(room.id)}, ${sqlValue(agent.id)}, 'succeeded',
+      ${sqlValue(runtimeSessionId)}, ${now - 3000}, ${now}, ${now - 2500}, ${now},
+      ${sqlValue(sourceMessageId)}, ${sqlJson([])}, ${sqlValue(trajectoryExportSummary)}, NULL
+    );
+
+    INSERT INTO harness_context_snapshots (
+      harness_context_snapshot_id, room_id, agent_member_id, harness_session_id,
+      harness_trigger_id, harness_turn_id, harness_run_id, created_at, projection_version,
+      projection_json, source_message_ids_json, source_doc_revision_ids_json, token_estimate,
+      redaction_state
+    ) VALUES (
+      ${sqlValue(snapshotId)}, ${sqlValue(room.id)}, ${sqlValue(agent.id)}, NULL, NULL, NULL,
+      ${sqlValue(runId)}, ${now - 2600}, 1, ${sqlJson(projection)},
+      ${sqlJson([sourceMessageId])}, ${sqlJson([])}, 128, 'raw'
+    );
+
+    INSERT INTO harness_run_events (
+      runtime_event_id, harness_run_id, room_id, target_member_id, sequence, type, created_at,
+      runtime_session_id, payload_json
+    ) VALUES
+      (${sqlValue(`rtevt_phase34_export_started_${trajectorySeedSuffix}`)}, ${sqlValue(runId)}, ${sqlValue(room.id)}, ${sqlValue(agent.id)}, 1, 'run.started', ${now - 2400}, ${sqlValue(runtimeSessionId)}, ${sqlJson({ kind: "run_status", status: "running", message: "Phase 34 export E2E started" })}),
+      (${sqlValue(`rtevt_phase34_export_output_${trajectorySeedSuffix}`)}, ${sqlValue(runId)}, ${sqlValue(room.id)}, ${sqlValue(agent.id)}, 2, 'adapter.output', ${now - 1200}, ${sqlValue(runtimeSessionId)}, ${sqlJson({ kind: "adapter_output", stream: "stdout", text: trajectoryExportSummary })}),
+      (${sqlValue(`rtevt_phase34_export_completed_${trajectorySeedSuffix}`)}, ${sqlValue(runId)}, ${sqlValue(room.id)}, ${sqlValue(agent.id)}, 3, 'run.completed', ${now}, ${sqlValue(runtimeSessionId)}, ${sqlJson({ kind: "run_status", status: "succeeded", message: trajectoryExportSummary })});
+
+    INSERT INTO room_messages (
+      message_id, room_id, sequence, sender_json, kind, created_at, edited_at, text,
+      content_json, llm_role, thread_json, mentions_json, reply_to_json, references_json,
+      attachments_json, evidence_json, trace_json, export_meta_json, visibility_json,
+      notification_json
+    ) VALUES (
+      ${sqlValue(outputMessageId)}, ${sqlValue(room.id)},
+      (SELECT COALESCE(MAX(sequence), 0) + 1 FROM room_messages WHERE room_id = ${sqlValue(room.id)}),
+      ${sqlJson({ kind: "member", memberId: agent.id })}, 'text', ${now - 500}, NULL,
+      ${sqlValue(trajectoryExportSummary)}, NULL, 'assistant', NULL, NULL,
+      ${sqlJson({ messageId: sourceMessageId })}, NULL, NULL, NULL,
+      ${sqlJson({
+        harnessRunId: runId,
+        runtimeSessionId,
+        projectionSnapshotId: snapshotId,
+        sourceMessageIds: [sourceMessageId],
+        visibleMessageIds: [sourceMessageId],
+        visibleDocRevisionIds: [],
+      })},
+      ${sqlJson({
+        includeInTraining: true,
+        lossMask: "assistant_only",
+        evalLabels: { e2e: true, phase: 34 },
+        tags: ["phase34", "daemon-ui-e2e"],
+        redactionState: "raw",
+      })},
+      ${sqlJson(visibility)}, ${sqlJson(notification)}
+    );
+    COMMIT;
+  `;
+
+  runDaemonSqliteScript(databasePath, sql);
+
+  const exportResponse = await fetch(
+    `${daemonUrl}/linka/harness-runs/${runId}/export?format=linka-trajectory-jsonl`,
+  );
+  if (!exportResponse.ok) {
+    throw new Error(
+      `seeded trajectory export was not readable: ${exportResponse.status} ${exportResponse.statusText}`,
+    );
+  }
+  const exportText = await exportResponse.text();
+  if (!exportText.includes(snapshotId) || !exportText.includes("linka-trajectory-jsonl.v1")) {
+    throw new Error("seeded trajectory export did not include expected metadata");
+  }
+
+  return { roomId: room.id, runId, snapshotId, outputMessageId, sourceMessageId };
+};
+
+const reloadPage = async (page) => {
+  const loaded = new Promise((resolve) => page.on("Page.loadEventFired", resolve));
+  await page.send("Page.reload", { ignoreCache: true });
+  await withTimeout(loaded, timeoutMs, "page reload");
+};
+
 const getSnapshot = async (page) =>
   pageEvaluate(
     page,
     `(() => {
       const text = document.body?.innerText ?? "";
       const normalized = text.trim().replace(/[\\s\\u00a0]+/g, " ");
+      const seedRunId = ${js(seededTrajectoryExport?.runId ?? null)};
+      const seedSnapshotId = ${js(seededTrajectoryExport?.snapshotId ?? null)};
+      const activityButtons = [...document.querySelectorAll("button")].filter((button) => /run completed|adapter output|adapter error|run running|run queued/i.test(button.textContent ?? ""));
       return {
         title: document.title,
         bodyLength: normalized.length,
-        text: normalized.slice(0, 1200),
+        text: normalized.slice(0, 2400),
         hasRootContent: Boolean(document.getElementById("root")?.children.length),
         hasDaemonOnline: /\\/linka\\/health\\s*·\\s*online/i.test(normalized),
         hasDaemonSource: /\\bdaemon\\b/i.test(normalized),
@@ -316,7 +526,13 @@ const getSnapshot = async (page) =>
         hasAnnouncement: normalized.includes(${js(announcementTitle)}) && normalized.includes(${js(announcementBody)}),
         hasEditedAnnouncement: normalized.includes(${js(editedAnnouncementTitle)}) && normalized.includes(${js(editedAnnouncementBody)}),
         hasDeletedAnnouncement: !normalized.includes(${js(editedAnnouncementTitle)}) && !normalized.includes(${js(editedAnnouncementBody)}),
-        hasActivity: /Agent 活动/.test(normalized) && (/暂无 Agent 活动/.test(normalized) || /session|run|events|LinkA|资料 Agent|核验 Agent/i.test(normalized))
+        hasActivity: /Agent 活动/.test(normalized) && (/暂无 Agent 活动/.test(normalized) || /session|run|events|LinkA|资料 Agent|核验 Agent/i.test(normalized)),
+        activityItemCount: activityButtons.length,
+        hasSeededActivityItem: Boolean(seedRunId) && normalized.includes(${js(trajectoryExportSummary)}),
+        hasRunDetail: Boolean(seedRunId) && /Run detail/i.test(normalized) && normalized.includes(seedRunId),
+        hasTrajectoryExportButton: [...document.querySelectorAll("button")].some((button) => (button.textContent ?? "").includes("导出 trajectory")),
+        hasTrajectoryExportMetadata: Boolean(seedRunId && seedSnapshotId) && normalized.includes("runId") && normalized.includes(seedRunId) && normalized.includes("snapshotId") && normalized.includes(seedSnapshotId) && normalized.includes("version") && normalized.includes("linka-trajectory-jsonl.v1") && normalized.includes("format") && normalized.includes("linka-trajectory-jsonl"),
+        hasTrajectoryJsonlPreview: /JSONL preview/i.test(normalized) && Boolean(seedRunId) && (normalized.includes("linka-trajectory-jsonl.v1") || normalized.includes(seedRunId))
       };
     })()`,
     "snapshot evaluation",
@@ -698,11 +914,39 @@ const run = async () => {
       (snapshot) => snapshot.hasDeletedAnnouncement && /暂无公告/.test(snapshot.text),
     );
 
+    seededTrajectoryExport = await seedTrajectoryExportFixture({ daemonUrl, linkaHome, profile });
+    await reloadPage(page);
+    await waitFor(
+      page,
+      "strict daemon online UI after trajectory seed",
+      (snapshot) =>
+        snapshot.bodyLength > 0 &&
+        snapshot.hasRootContent &&
+        snapshot.hasDaemonOnline &&
+        snapshot.hasDaemonSource &&
+        snapshot.hasSseOpen,
+    );
+    await runDomAction(page, "select seeded room after reload", `clickText("nav button", ${js(roomName)});`);
+    await waitFor(page, "seeded room selected after reload", (snapshot) => snapshot.hasSelectedRoom);
+
     await runDomAction(page, "open Activity tab", `clickText("button", "活动");`);
     const activitySnapshot = await waitFor(
       page,
-      "activity tab visible",
-      (snapshot) => snapshot.hasActivity,
+      "seeded activity item visible",
+      (snapshot) =>
+        snapshot.hasActivity && snapshot.activityItemCount > 0 && snapshot.hasSeededActivityItem,
+    );
+    await runDomAction(page, "open seeded run detail", `clickText("button", "run completed");`);
+    const runDetailSnapshot = await waitFor(
+      page,
+      "trajectory run detail visible",
+      (snapshot) => snapshot.hasRunDetail && snapshot.hasTrajectoryExportButton,
+    );
+    await runDomAction(page, "export seeded trajectory", `clickText("button", "导出 trajectory");`);
+    const trajectoryExportSnapshot = await waitFor(
+      page,
+      "trajectory export metadata visible",
+      (snapshot) => snapshot.hasTrajectoryExportMetadata && snapshot.hasTrajectoryJsonlPreview,
     );
 
     await delay(300);
@@ -730,7 +974,12 @@ const run = async () => {
     console.log(
       `edited then deleted announcement: ${editedAnnouncementSnapshot.hasEditedAnnouncement && deletedAnnouncementSnapshot.hasDeletedAnnouncement}`,
     );
+    console.log(
+      `seeded trajectory export: run=${seededTrajectoryExport.runId} snapshot=${seededTrajectoryExport.snapshotId}`,
+    );
     console.log(`activity tab observed: ${activitySnapshot.text}`);
+    console.log(`run detail observed: ${runDetailSnapshot.text}`);
+    console.log(`trajectory export observed: ${trajectoryExportSnapshot.text}`);
     console.log("strict ui-smoke equivalent: passed");
   } catch (error) {
     const details = [

@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { Announcement, DocStatus, RoomMember, RuntimeEvent } from "@linka/shared";
 
+import {
+  exportHarnessRunTrajectory,
+  type HarnessRunTrajectoryExport,
+} from "../../services/harnessRunsService.js";
 import { buildAgentActivityItems, type AgentActivityItem } from "../../store/agentActivity.js";
 import { useRoomStore } from "../../store/roomStore.js";
 
@@ -15,6 +19,8 @@ const emptySessions = [] as const;
 const emptyRuntimeEventsByRunId = {} as const;
 
 type RailTab = "info" | "members" | "announcements" | "docs" | "activity" | "files";
+type TrajectoryExportStatus = "idle" | "loading" | "success" | "error";
+type TrajectoryCopyStatus = "idle" | "copied" | "error";
 
 const tabs: readonly { readonly id: RailTab; readonly label: string }[] = [
   { id: "info", label: "信息" },
@@ -53,6 +59,15 @@ const truncateInline = (text: string, maxLength = 140): string => {
 
   return `${normalized.slice(0, maxLength - 1)}...`;
 };
+
+const truncatePreview = (text: string, maxLength = 2400): string => {
+  if (text.length <= maxLength) return text;
+
+  return `${text.slice(0, maxLength)}\n... truncated ${text.length - maxLength} chars`;
+};
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "导出 trajectory 失败";
 
 const statusClass = (status: string): string => {
   if (status === "running" || status === "queued" || status === "output") {
@@ -142,6 +157,13 @@ export const MemberRail = () => {
   const [isSavingAnnouncement, setIsSavingAnnouncement] = useState(false);
   const [deletingAnnouncementId, setDeletingAnnouncementId] = useState<string | undefined>();
   const [selectedActivityId, setSelectedActivityId] = useState<string | undefined>();
+  const [trajectoryExportStatus, setTrajectoryExportStatus] =
+    useState<TrajectoryExportStatus>("idle");
+  const [trajectoryExport, setTrajectoryExport] = useState<
+    HarnessRunTrajectoryExport | undefined
+  >();
+  const [trajectoryExportError, setTrajectoryExportError] = useState<string | undefined>();
+  const [trajectoryCopyStatus, setTrajectoryCopyStatus] = useState<TrajectoryCopyStatus>("idle");
   const activeRoomId = useRoomStore((state) => state.activeRoomId);
   const source = useRoomStore((state) => state.source);
   const room = useRoomStore((state) =>
@@ -209,9 +231,11 @@ export const MemberRail = () => {
     [members, sessions, runs, roomRuntimeEventsByRunId],
   );
   const selectedActivity = activityItems.find((item) => item.id === selectedActivityId);
+  const selectedActivityRunId = selectedActivity?.runId;
   const selectedActivityRawEvents = selectedActivity?.runId
     ? (roomRuntimeEventsByRunId[selectedActivity.runId] ?? selectedActivity.rawEvents)
     : (selectedActivity?.rawEvents ?? []);
+  const trajectoryExportPreview = trajectoryExport ? truncatePreview(trajectoryExport.text) : "";
 
   useEffect(() => {
     if (!selectedDoc) return;
@@ -240,6 +264,45 @@ export const MemberRail = () => {
 
     setSelectedActivityId(undefined);
   }, [activityItems, selectedActivityId]);
+
+  useEffect(() => {
+    setTrajectoryExportStatus("idle");
+    setTrajectoryExport(undefined);
+    setTrajectoryExportError(undefined);
+    setTrajectoryCopyStatus("idle");
+  }, [selectedActivityRunId]);
+
+  const handleTrajectoryExport = () => {
+    if (!selectedActivityRunId || !isApiBacked || trajectoryExportStatus === "loading") return;
+
+    setTrajectoryExportStatus("loading");
+    setTrajectoryExport(undefined);
+    setTrajectoryExportError(undefined);
+    setTrajectoryCopyStatus("idle");
+
+    void exportHarnessRunTrajectory(selectedActivityRunId)
+      .then((result) => {
+        setTrajectoryExport(result);
+        setTrajectoryExportStatus("success");
+      })
+      .catch((error: unknown) => {
+        setTrajectoryExportError(getErrorMessage(error));
+        setTrajectoryExportStatus("error");
+      });
+  };
+
+  const handleCopyTrajectoryExport = () => {
+    if (!trajectoryExport) return;
+    if (!navigator.clipboard) {
+      setTrajectoryCopyStatus("error");
+      return;
+    }
+
+    void navigator.clipboard
+      .writeText(trajectoryExport.text)
+      .then(() => setTrajectoryCopyStatus("copied"))
+      .catch(() => setTrajectoryCopyStatus("error"));
+  };
 
   return (
     <aside className="linka-scrollbar min-h-0 overflow-y-auto border-t border-line bg-[#f7f0e3]/90 p-3 lg:border-l lg:border-t-0">
@@ -895,6 +958,88 @@ export const MemberRail = () => {
                   <dd>{selectedActivity.rawEventCount}</dd>
                 </div>
               </dl>
+
+              <div className="mt-3 grid gap-2 rounded-md border border-line bg-[#fbf7ed] p-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h4 className="font-mono text-[11px] uppercase text-muted">
+                      Trajectory export
+                    </h4>
+                    <p className="mt-1 text-xs leading-5 text-muted">
+                      {selectedActivityRunId
+                        ? isApiBacked
+                          ? `状态：${trajectoryExportStatus}`
+                          : "当前是 fallback 数据，导出需要启动 LinkA daemon。"
+                        : "该活动没有 runId，无法导出 trajectory。"}
+                    </p>
+                  </div>
+                  <button
+                    className="rounded-md border border-linka/30 bg-panel px-2 py-1 text-xs font-semibold text-linka hover:border-linka disabled:cursor-not-allowed disabled:border-line disabled:text-muted disabled:opacity-70"
+                    type="button"
+                    disabled={
+                      !selectedActivityRunId || !isApiBacked || trajectoryExportStatus === "loading"
+                    }
+                    onClick={handleTrajectoryExport}
+                  >
+                    {trajectoryExportStatus === "loading" ? "导出中" : "导出 trajectory"}
+                  </button>
+                </div>
+
+                {trajectoryExportStatus === "error" ? (
+                  <p className="rounded-md border border-danger/30 bg-[#fae8e2] p-2 text-xs leading-5 text-danger">
+                    {trajectoryExportError ?? "导出 trajectory 失败"}
+                  </p>
+                ) : null}
+
+                {trajectoryExportStatus === "success" && trajectoryExport ? (
+                  <div className="grid gap-2">
+                    <dl className="grid gap-1 text-xs leading-5 text-muted">
+                      <div className="flex justify-between gap-3">
+                        <dt>runId</dt>
+                        <dd className="break-all text-right font-mono">
+                          {trajectoryExport.record.metadata.runId}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <dt>snapshotId</dt>
+                        <dd className="break-all text-right font-mono">
+                          {trajectoryExport.record.metadata.snapshotId}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <dt>version</dt>
+                        <dd className="break-all text-right font-mono">
+                          {trajectoryExport.record.metadata.version}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <dt>format</dt>
+                        <dd className="break-all text-right font-mono">
+                          {trajectoryExport.record.metadata.format}
+                        </dd>
+                      </div>
+                    </dl>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-mono text-[11px] uppercase text-muted">
+                        JSONL preview
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] text-muted">
+                          copy: {trajectoryCopyStatus}
+                        </span>
+                        <button
+                          className="rounded-md border border-line bg-panel px-2 py-0.5 text-[11px] text-muted hover:border-linka hover:text-linka"
+                          type="button"
+                          onClick={handleCopyTrajectoryExport}
+                        >
+                          复制 raw
+                        </button>
+                      </div>
+                    </div>
+                    <pre className="max-h-64 overflow-auto rounded-md border border-line bg-[#1f2421] p-2 font-mono text-[11px] leading-5 text-[#fbf7ed]">{trajectoryExportPreview}</pre>
+                  </div>
+                ) : null}
+              </div>
 
               <div className="mt-3 grid gap-2">
                 <h4 className="font-mono text-[11px] uppercase text-muted">

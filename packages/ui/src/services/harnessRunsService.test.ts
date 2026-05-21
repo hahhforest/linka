@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  harnessContextSnapshotId,
   harnessRunId,
   runtimeEventId,
   runtimeSessionId,
@@ -10,7 +11,12 @@ import {
 } from "@linka/shared";
 
 import { demoRoom } from "../fixtures/demoRoom.js";
-import { listHarnessRunEvents, listRoomHarnessRuns } from "./harnessRunsService.js";
+import {
+  exportHarnessRunTrajectory,
+  listHarnessRunEvents,
+  listRoomHarnessRuns,
+  parseTrajectoryExport,
+} from "./harnessRunsService.js";
 
 interface CapturedRequest {
   readonly input: string;
@@ -22,6 +28,13 @@ const makeJsonResponse = (body: unknown, status = 200): Response =>
     status,
     statusText: status === 200 || status === 201 ? "OK" : "Error",
     headers: { "Content-Type": "application/json" },
+  });
+
+const makeTextResponse = (body: string, status = 200): Response =>
+  new Response(body, {
+    status,
+    statusText: status === 200 || status === 201 ? "OK" : "Error",
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 
 const runtime = {
@@ -55,10 +68,32 @@ const event: RuntimeEvent = {
   payload: { kind: "adapter_output", stream: "summary", text: "UI service run complete" },
 };
 
+const trajectoryRecord = {
+  metadata: {
+    version: "linka-trajectory-jsonl.v1",
+    format: "linka-trajectory-jsonl",
+    runId: run.id,
+    roomId: run.roomId,
+    agentMemberId: run.targetMemberId,
+    snapshotId: harnessContextSnapshotId("hctx_ui_service_snapshot"),
+    projectionVersion: 1,
+    redactionState: "raw",
+    exportedAt: unixMs(1_716_000_000_020),
+  },
+  messages: [{ id: "msg_fixture" }],
+  runtimeEvents: [event],
+  outputMessages: [{ id: "msg_output" }],
+  labels: { runStatus: "succeeded" },
+};
+
+const trajectoryText = `${JSON.stringify(trajectoryRecord)}\n`;
+
 const requests: CapturedRequest[] = [];
 const responses = [
   makeJsonResponse({ ok: true, runs: [run] }),
   makeJsonResponse({ ok: true, events: [event] }),
+  makeTextResponse(trajectoryText),
+  makeTextResponse(JSON.stringify({ ok: false, error: { code: "BAD_REQUEST" } }), 400),
 ];
 
 const fetchImpl: typeof fetch = async (input, init = {}) => {
@@ -81,5 +116,32 @@ assert.equal(requests[0]?.init.method, "GET");
 assert.deepEqual(await listHarnessRunEvents(run.id, options), [event]);
 assert.equal(requests[1]?.input, `http://daemon.test/linka/harness-runs/${run.id}/events`);
 assert.equal(requests[1]?.init.method, "GET");
+
+const signal = AbortSignal.timeout(1_000);
+const exportResult = await exportHarnessRunTrajectory(run.id, { ...options, signal });
+assert.equal(
+  requests[2]?.input,
+  `http://daemon.test/linka/harness-runs/${run.id}/export?format=linka-trajectory-jsonl`,
+);
+assert.equal(requests[2]?.init.method, "GET");
+assert.equal(requests[2]?.init.signal, signal);
+assert.equal(requests[2]?.init.headers instanceof Headers, false);
+assert.deepEqual(requests[2]?.init.headers, { Accept: "application/x-ndjson, text/plain" });
+assert.equal(exportResult.text, trajectoryText);
+assert.deepEqual(exportResult.record, trajectoryRecord);
+assert.deepEqual(parseTrajectoryExport(trajectoryText), trajectoryRecord);
+assert.equal(exportResult.record.metadata.runId, run.id);
+assert.equal(exportResult.record.metadata.snapshotId, trajectoryRecord.metadata.snapshotId);
+
+await assert.rejects(
+  exportHarnessRunTrajectory(run.id, options),
+  /LinkA daemon request failed: 400 Error/,
+);
+assert.equal(
+  requests[3]?.input,
+  `http://daemon.test/linka/harness-runs/${run.id}/export?format=linka-trajectory-jsonl`,
+);
+assert.equal(requests[3]?.init.method, "GET");
+assert.equal(responses.length, 0);
 
 console.log("harness runs service api shape: ok");
