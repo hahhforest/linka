@@ -49,20 +49,19 @@ The UI intentionally does not write the JSONL payload, preview, copy state, or e
 
 `scripts/daemon-ui-e2e.mjs` now covers the daemon-backed trajectory export path from the browser UI. The script still starts and cleans up its own daemon, Vite UI, headless Chrome profile, and temp `LINKA_HOME`; strict daemon evidence remains required through `/linka/health · online`, `daemon`, and `sse open` assertions.
 
-The E2E prepares run data with a deterministic seed step after creating the real Room through the UI:
-
-- reads the created Room and its Alice/LinkA members through daemon APIs;
-- writes a minimal harness run, runtime session, context snapshot, three runtime events, a source message, and a traced assistant output message into the temp profile SQLite database using the daemon package's `better-sqlite3` dependency;
-- preflights the daemon export endpoint once to verify the seeded run is readable and contains `linka-trajectory-jsonl.v1` plus the expected snapshot id;
-- reloads the WebUI and re-selects the seeded Room so Activity data is loaded through the normal UI services.
+The E2E no longer seeds harness run rows directly into SQLite. It creates the real Room, Doc, and Announcement through the browser UI, then sends an actual composer message containing `@LinkA`. The daemon room message path resolves the mention, starts the Harness run with the explicit test runtime adapter, writes the context snapshot and runtime events through daemon stores, and appends the translated Agent output Room message.
 
 The browser path then verifies:
 
-- Activity tab contains at least one seeded activity item;
-- clicking `LinkA run completed` opens `Run detail` with the seeded `runId`;
+- the `@LinkA` prompt appears in the Room timeline;
+- deterministic test runtime output appears as an Agent Room message;
+- the Activity tab contains a live run item backed by daemon runtime events;
+- clicking the completed run opens `Run detail`;
 - clicking `导出 trajectory` reaches success state;
 - visible metadata contains `runId`, `snapshotId`, `version`, and `format`;
-- `JSONL preview` contains `linka-trajectory-jsonl.v1` or the seeded run id.
+- `JSONL preview` contains `linka-trajectory-jsonl.v1` and the live run export data.
+
+Direct SQLite seed remains disallowed for the daemon UI smoke main path because it bypasses the Room composer, daemon mention handler, Harness runner, Activity projection, and output-message trace that this gate is meant to protect.
 
 ## Quality Gate
 
@@ -73,9 +72,11 @@ Focused service tests in `packages/ui/src/services/harnessRunsService.test.ts` c
 - `fetchImpl`, `baseUrl`, and `signal` propagation;
 - non-OK daemon responses using the same error text pattern as `requestJson`.
 
-T3 verifier commands:
+Original Phase 34 verifier commands recorded at the time:
 
 - `node scripts/daemon-ui-e2e.mjs` passed.
 - `pnpm smoke:daemon-ui` passed.
+
+The later architecture cleanup audit updated the E2E narrative from seeded run data to the live composer `@LinkA` path, but did not rerun full `pnpm smoke:daemon-ui`; it only rechecked script syntax. Any follow-up implementation that touches this path must rerun the full smoke gate.
 
 No UI component changes were required by T3, so `pnpm --filter @linka/ui typecheck/test/build` was not rerun in this verifier lane.
