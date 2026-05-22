@@ -37,6 +37,7 @@ import { createHarnessRunStore } from "../store/harness-run-store.js";
 import { createHarnessSessionStore } from "../store/harness-session-store.js";
 import { createMessageStore } from "../store/message-store.js";
 import { createRoomStore } from "../store/room-store.js";
+import { selectDaemonRuntimeAdapter } from "../index.js";
 import {
   createOpenCodeRoomHarnessRunner,
   DEFAULT_OPENCODE_MODEL,
@@ -76,6 +77,23 @@ const capabilities: RuntimeAdapterCapabilities = {
 
 assert.equal(DEFAULT_OPENCODE_MODEL, "azure/gpt-5.5");
 assert.equal(DEFAULT_OPENCODE_VARIANT, "xhigh");
+
+assert.equal(
+  selectDaemonRuntimeAdapter({ env: {}, cwd: process.cwd() }).getCapabilities().kind,
+  "opencode",
+);
+assert.equal(
+  selectDaemonRuntimeAdapter({ env: { LINKA_RUNTIME_ADAPTER: "test" }, cwd: process.cwd() })
+    .getCapabilities()
+    .kind,
+  "test",
+);
+assert.equal(
+  selectDaemonRuntimeAdapter({ env: { LINKA_TEST_RUNTIME: "1" }, cwd: process.cwd() })
+    .getCapabilities()
+    .kind,
+  "test",
+);
 
 interface OpenCodeRunnerContext {
   readonly handle: DatabaseHandle;
