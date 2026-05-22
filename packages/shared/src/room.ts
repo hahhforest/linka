@@ -399,3 +399,43 @@ export const isMemberSender = (
 export const isSystemSender = (
   sender: RoomMessageSender | RoomEventActor,
 ): sender is RoomMessageSenderSystem | RoomEventActorSystem => sender.kind === "system";
+
+export const roomMessageContentPartToText = (part: RoomMessageContentPart): string => {
+  switch (part.type) {
+    case "text":
+      return part.text;
+    case "tool_call":
+      return `[tool_call:${part.name}] ${part.argumentsJson}`;
+    case "tool_result":
+      return `[tool_result:${part.status}] ${part.text ?? part.resultJson ?? ""}`;
+    case "doc_ref":
+      return `[doc_ref:${part.docId}]${part.quote ? ` ${part.quote}` : ""}`;
+    case "file_ref":
+      return `[file_ref:${part.fileId}]${part.label ? ` ${part.label}` : ""}`;
+    case "evidence_ref":
+      return `[evidence_ref] ${part.label}${part.uri ? ` ${part.uri}` : ""}`;
+    case "image":
+      return `[image:${part.attachmentId}]${part.alt ? ` ${part.alt}` : ""}`;
+    case "event_ref":
+      return `[event_ref:${part.eventId}]${part.label ? ` ${part.label}` : ""}`;
+  }
+};
+
+export const getRoomMessagePlainText = (
+  message: Pick<RoomMessage, "content" | "text" | "kind">,
+): string => {
+  const contentText = message.content
+    ?.map(roomMessageContentPartToText)
+    .filter((partText) => partText.trim().length > 0)
+    .join("\n");
+
+  if (contentText && contentText.trim().length > 0) {
+    return contentText;
+  }
+
+  return message.text ?? `[${message.kind}]`;
+};
+
+export const getRoomMessageReplyToId = (
+  message: Pick<RoomMessage, "replyTo" | "thread">,
+): RoomMessageId | undefined => message.thread?.replyToMessageId ?? message.replyTo?.messageId;

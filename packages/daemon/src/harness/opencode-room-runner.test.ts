@@ -83,15 +83,17 @@ assert.equal(
   "opencode",
 );
 assert.equal(
-  selectDaemonRuntimeAdapter({ env: { LINKA_RUNTIME_ADAPTER: "test" }, cwd: process.cwd() })
-    .getCapabilities()
-    .kind,
+  selectDaemonRuntimeAdapter({
+    env: { LINKA_RUNTIME_ADAPTER: "test" },
+    cwd: process.cwd(),
+  }).getCapabilities().kind,
   "test",
 );
 assert.equal(
-  selectDaemonRuntimeAdapter({ env: { LINKA_TEST_RUNTIME: "1" }, cwd: process.cwd() })
-    .getCapabilities()
-    .kind,
+  selectDaemonRuntimeAdapter({
+    env: { LINKA_TEST_RUNTIME: "1" },
+    cwd: process.cwd(),
+  }).getCapabilities().kind,
   "test",
 );
 
@@ -593,7 +595,13 @@ await withOpenCodeRunnerContext(async ({ container, room, members, agent, messag
   assert.equal(snapshots.length, 1);
   const snapshot = snapshots[0];
   assert.ok(snapshot);
+  assert.equal(session.status, "idle");
+  assert.equal(session.lastTriggerId, trigger.id);
+  assert.equal(trigger.status, "consumed");
+  assert.equal(trigger.attemptCount, 1);
   assert.equal(snapshot.harnessRunId, runs[0]?.id);
+  assert.equal(snapshot.harnessSessionId, session.id);
+  assert.equal(snapshot.harnessTriggerId, trigger.id);
   assert.deepEqual(snapshot.sourceMessageIds, [message.id]);
   assert.deepEqual(snapshot.sourceDocRevisionIds, [revision.id]);
 

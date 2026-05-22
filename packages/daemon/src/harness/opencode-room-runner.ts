@@ -201,6 +201,59 @@ const bindSessionRuntime = (
   });
 };
 
+const markSessionRunning = (
+  container: CreateOpenCodeRoomHarnessRunnerOptions["container"],
+  sessionId: HarnessSessionId,
+  triggerId: HarnessTriggerId,
+  updatedAt: UnixMs,
+): void => {
+  container.harnessSessionStore.updateSessionStatus({
+    id: sessionId,
+    status: "running",
+    updatedAt,
+    lastTriggerId: triggerId,
+    error: null,
+  });
+};
+
+const markTriggerDispatched = (
+  container: CreateOpenCodeRoomHarnessRunnerOptions["container"],
+  triggerId: HarnessTriggerId,
+  updatedAt: UnixMs,
+): void => {
+  container.harnessSessionStore.updateTriggerStatus({
+    id: triggerId,
+    status: "dispatched",
+    updatedAt,
+    attemptCount: 1,
+    error: null,
+  });
+};
+
+const completeSessionAndTrigger = (
+  container: CreateOpenCodeRoomHarnessRunnerOptions["container"],
+  sessionId: HarnessSessionId,
+  triggerId: HarnessTriggerId,
+  result: Awaited<ReturnType<typeof startHarnessRun>>,
+  updatedAt: UnixMs,
+): void => {
+  const failed = result.run.status === "failed";
+
+  container.harnessSessionStore.updateTriggerStatus({
+    id: triggerId,
+    status: failed ? "dead_letter" : "consumed",
+    updatedAt,
+    error: failed ? (result.run.error ?? "run failed") : null,
+  });
+  container.harnessSessionStore.updateSessionStatus({
+    id: sessionId,
+    status: failed ? "failed" : "idle",
+    updatedAt,
+    lastTriggerId: triggerId,
+    error: failed ? (result.run.error ?? "run failed") : null,
+  });
+};
+
 export const createOpenCodeRoomHarnessRunner = ({
   container,
   adapter,
@@ -228,6 +281,8 @@ export const createOpenCodeRoomHarnessRunner = ({
       sourceMessageId: input.message.id,
       attemptCount: 0,
     });
+    markSessionRunning(container, session.id, trigger.id, triggeredAt);
+    markTriggerDispatched(container, trigger.id, triggeredAt);
 
     const result = await startHarnessRun({
       container,
@@ -235,10 +290,14 @@ export const createOpenCodeRoomHarnessRunner = ({
       roomId: input.room.id,
       targetMemberId: input.targetMember.id,
       triggerMessageId: input.message.id,
+      harnessSessionId: session.id,
+      harnessTriggerId: trigger.id,
       runtime: session.runtime,
       now,
     });
-    bindSessionRuntime(container, session.id, result.run.runtime, readNow(now));
+    const completedAt = readNow(now);
+    bindSessionRuntime(container, session.id, result.run.runtime, completedAt);
+    completeSessionAndTrigger(container, session.id, trigger.id, result, completedAt);
     const outputText =
       selectLastAdapterOutputText(result.events) ??
       (result.run.status === "failed" ? formatFailureReplyText(result.run.error) : undefined);

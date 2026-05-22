@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import type { RuntimeAdapter } from "@linka/harness";
 import {
   docCommentId,
+  harnessSessionId,
+  harnessTriggerId,
   harnessRunId,
   docRevisionId,
   docId,
@@ -33,6 +35,10 @@ import { runMigrations } from "../db/migrations.js";
 import { createDocStore } from "../store/doc-store.js";
 import { createContextSnapshotStore } from "../store/context-snapshot-store.js";
 import { createHarnessRunStore } from "../store/harness-run-store.js";
+import {
+  createHarnessSessionStore,
+  type HarnessSessionStore,
+} from "../store/harness-session-store.js";
 import { createMessageStore } from "../store/message-store.js";
 import { createRoomStore } from "../store/room-store.js";
 import { startHarnessRun, type StartHarnessRunInput } from "./run-service.js";
@@ -70,6 +76,7 @@ const capabilities: RuntimeAdapterCapabilities = {
 interface RunServiceContext {
   readonly handle: DatabaseHandle;
   readonly container: StartHarnessRunInput["container"];
+  readonly harnessSessionStore: HarnessSessionStore;
   readonly room: Room;
   readonly human: RoomMember;
   readonly agent: RoomMember;
@@ -165,6 +172,7 @@ const withRunServiceContext = async (
     const messageStore = createMessageStore(handle);
     const docStore = createDocStore(handle);
     const harnessRunStore = createHarnessRunStore(handle);
+    const harnessSessionStore = createHarnessSessionStore(handle);
     const contextSnapshotStore = createContextSnapshotStore(handle);
     const container = { roomStore, messageStore, docStore, harnessRunStore, contextSnapshotStore };
     const room = roomStore.createRoom(makeRoom());
@@ -187,124 +195,174 @@ const withRunServiceContext = async (
     assert.ok(doc);
     const comment = docStore.createComment(makeComment(doc, human, agent));
 
-    await run({ handle, container, room, human, agent, message, doc, revision, comment });
+    await run({
+      handle,
+      container,
+      harnessSessionStore,
+      room,
+      human,
+      agent,
+      message,
+      doc,
+      revision,
+      comment,
+    });
   } finally {
     handle.close();
   }
 };
 
-await withRunServiceContext(async ({ container, room, agent, message, doc, revision, comment }) => {
-  let receivedRun: HarnessRun | undefined;
-  let receivedProjection: HarnessProjection | undefined;
-  let snapshotSeenBeforeAdapter = false;
-  const runtime: RuntimeSessionRef = {
-    id: runtimeSessionId("rsess_run_service_fake"),
-    kind: "test",
-    adapterSessionId: "fake-adapter-session",
-    label: "Fake Runtime",
-  };
-  const adapter = {
-    getCapabilities: () => capabilities,
-    startRun: async (input) => {
-      receivedRun = input.run;
-      receivedProjection = input.projection;
-      const snapshots = container.contextSnapshotStore.listSnapshotsByRoom(input.run.roomId);
-      assert.equal(snapshots.length, 1);
-      const snapshot = snapshots[0];
-      assert.ok(snapshot);
-      snapshotSeenBeforeAdapter = true;
-      assert.equal(snapshot.roomId, room.id);
-      assert.equal(snapshot.agentMemberId, agent.id);
-      assert.equal(snapshot.harnessRunId, input.run.id);
-      assert.equal(snapshot.createdAt, now);
-      assert.equal(snapshot.projectionVersion, 1);
-      assert.equal(snapshot.projectionJson, JSON.stringify(input.projection));
-      assert.deepEqual(snapshot.sourceMessageIds, [message.id]);
-      assert.deepEqual(snapshot.sourceDocRevisionIds, [revision.id]);
-      assert.equal(snapshot.redactionState, "raw");
+await withRunServiceContext(
+  async ({ container, harnessSessionStore, room, agent, message, doc, revision, comment }) => {
+    let receivedRun: HarnessRun | undefined;
+    let receivedProjection: HarnessProjection | undefined;
+    let snapshotSeenBeforeAdapter = false;
+    const sessionId = harnessSessionId("hsess_run_service_provenance");
+    const triggerId = harnessTriggerId("htrig_run_service_provenance");
+    harnessSessionStore.createSession({
+      id: sessionId,
+      roomId: room.id,
+      agentMemberId: agent.id,
+      status: "running",
+      policy: {
+        triggerMode: "mention_only",
+        maxConcurrentTurns: 1,
+        allowAutonomousContinue: false,
+        visibleContext: "room",
+      },
+      createdAt: now,
+      updatedAt: now,
+    });
+    harnessSessionStore.createTrigger({
+      id: triggerId,
+      sessionId,
+      roomId: room.id,
+      agentMemberId: agent.id,
+      kind: "member_mentioned",
+      status: "dispatched",
+      createdAt: now,
+      updatedAt: now,
+      sourceMessageId: message.id,
+      attemptCount: 1,
+    });
+    const runtime: RuntimeSessionRef = {
+      id: runtimeSessionId("rsess_run_service_fake"),
+      kind: "test",
+      adapterSessionId: "fake-adapter-session",
+      label: "Fake Runtime",
+    };
+    const adapter = {
+      getCapabilities: () => capabilities,
+      startRun: async (input) => {
+        receivedRun = input.run;
+        receivedProjection = input.projection;
+        const snapshots = container.contextSnapshotStore.listSnapshotsByRoom(input.run.roomId);
+        assert.equal(snapshots.length, 1);
+        const snapshot = snapshots[0];
+        assert.ok(snapshot);
+        snapshotSeenBeforeAdapter = true;
+        assert.equal(snapshot.roomId, room.id);
+        assert.equal(snapshot.agentMemberId, agent.id);
+        assert.equal(snapshot.harnessSessionId, sessionId);
+        assert.equal(snapshot.harnessTriggerId, triggerId);
+        assert.equal(snapshot.harnessRunId, input.run.id);
+        assert.equal(snapshot.createdAt, now);
+        assert.equal(snapshot.projectionVersion, 1);
+        assert.equal(snapshot.projectionJson, JSON.stringify(input.projection));
+        assert.deepEqual(snapshot.sourceMessageIds, [message.id]);
+        assert.deepEqual(snapshot.sourceDocRevisionIds, [revision.id]);
+        assert.equal(snapshot.redactionState, "raw");
 
-      return {
-        events: runtimeEvents([
-          {
-            id: runtimeEventId("rtevt_service_started"),
-            runId: input.run.id,
-            roomId: input.run.roomId,
-            targetMemberId: input.run.targetMemberId,
-            sequence: 1,
-            type: "run.started",
-            createdAt: now,
-            runtime,
-            payload: { kind: "run_status", status: "running", message: "started" },
-          },
-          {
-            id: runtimeEventId("rtevt_service_output"),
-            runId: input.run.id,
-            roomId: input.run.roomId,
-            targetMemberId: input.run.targetMemberId,
-            sequence: 2,
-            type: "adapter.output",
-            createdAt: now,
-            runtime,
-            payload: {
-              kind: "adapter_output",
-              stream: "summary",
-              text: "read docs and room context",
+        return {
+          events: runtimeEvents([
+            {
+              id: runtimeEventId("rtevt_service_started"),
+              runId: input.run.id,
+              roomId: input.run.roomId,
+              targetMemberId: input.run.targetMemberId,
+              sequence: 1,
+              type: "run.started",
+              createdAt: now,
+              runtime,
+              payload: { kind: "run_status", status: "running", message: "started" },
             },
-          },
-        ]),
-      };
-    },
-  } satisfies RuntimeAdapter;
+            {
+              id: runtimeEventId("rtevt_service_output"),
+              runId: input.run.id,
+              roomId: input.run.roomId,
+              targetMemberId: input.run.targetMemberId,
+              sequence: 2,
+              type: "adapter.output",
+              createdAt: now,
+              runtime,
+              payload: {
+                kind: "adapter_output",
+                stream: "summary",
+                text: "read docs and room context",
+              },
+            },
+          ]),
+        };
+      },
+    } satisfies RuntimeAdapter;
 
-  const result = await startHarnessRun({
-    container,
-    adapter,
-    roomId: room.id,
-    targetMemberId: agent.id,
-    triggerMessageId: message.id,
-    docIds: [doc.id],
-    now: () => now,
-  });
+    const result = await startHarnessRun({
+      container,
+      adapter,
+      roomId: room.id,
+      targetMemberId: agent.id,
+      triggerMessageId: message.id,
+      harnessSessionId: sessionId,
+      harnessTriggerId: triggerId,
+      docIds: [doc.id],
+      now: () => now,
+    });
 
-  assert.match(result.run.id, /^hrun_/);
-  assert.equal(result.run.roomId, room.id);
-  assert.equal(result.run.targetMemberId, agent.id);
-  assert.equal(result.run.status, "succeeded");
-  assert.equal(result.run.createdAt, now);
-  assert.equal(result.run.updatedAt, now);
-  assert.equal(result.run.startedAt, now);
-  assert.equal(result.run.completedAt, now);
-  assert.equal(result.run.triggerMessageId, message.id);
-  assert.deepEqual(result.run.docIds, [doc.id]);
-  assert.deepEqual(result.run.runtime, runtime);
-  assert.equal(result.run.summary, "read docs and room context");
-  assert.deepEqual(container.harnessRunStore.getRun(result.run.id), result.run);
-  assert.equal(snapshotSeenBeforeAdapter, true);
-  assert.equal(result.snapshot.roomId, room.id);
-  assert.equal(result.snapshot.agentMemberId, agent.id);
-  assert.equal(result.snapshot.harnessRunId, result.run.id);
-  assert.equal(result.snapshot.projectionJson, JSON.stringify(receivedProjection));
-  assert.deepEqual(result.snapshot.sourceMessageIds, [message.id]);
-  assert.deepEqual(result.snapshot.sourceDocRevisionIds, [revision.id]);
-  assert.deepEqual(container.contextSnapshotStore.getSnapshot(result.snapshot.id), result.snapshot);
+    assert.match(result.run.id, /^hrun_/);
+    assert.equal(result.run.roomId, room.id);
+    assert.equal(result.run.targetMemberId, agent.id);
+    assert.equal(result.run.status, "succeeded");
+    assert.equal(result.run.createdAt, now);
+    assert.equal(result.run.updatedAt, now);
+    assert.equal(result.run.startedAt, now);
+    assert.equal(result.run.completedAt, now);
+    assert.equal(result.run.triggerMessageId, message.id);
+    assert.deepEqual(result.run.docIds, [doc.id]);
+    assert.deepEqual(result.run.runtime, runtime);
+    assert.equal(result.run.summary, "read docs and room context");
+    assert.deepEqual(container.harnessRunStore.getRun(result.run.id), result.run);
+    assert.equal(snapshotSeenBeforeAdapter, true);
+    assert.equal(result.snapshot.roomId, room.id);
+    assert.equal(result.snapshot.agentMemberId, agent.id);
+    assert.equal(result.snapshot.harnessSessionId, sessionId);
+    assert.equal(result.snapshot.harnessTriggerId, triggerId);
+    assert.equal(result.snapshot.harnessRunId, result.run.id);
+    assert.equal(result.snapshot.projectionJson, JSON.stringify(receivedProjection));
+    assert.deepEqual(result.snapshot.sourceMessageIds, [message.id]);
+    assert.deepEqual(result.snapshot.sourceDocRevisionIds, [revision.id]);
+    assert.deepEqual(
+      container.contextSnapshotStore.getSnapshot(result.snapshot.id),
+      result.snapshot,
+    );
 
-  assert.equal(receivedRun?.id, result.run.id);
-  assert.equal(receivedRun?.status, "running");
-  assert.equal(receivedProjection?.request.trigger.type, "member_mentioned");
-  assert.deepEqual(
-    receivedProjection?.messages.map((projectedMessage) => projectedMessage.id),
-    [message.id],
-  );
-  assert.deepEqual(receivedProjection?.docs, [doc]);
-  assert.deepEqual(receivedProjection?.docComments, [comment]);
+    assert.equal(receivedRun?.id, result.run.id);
+    assert.equal(receivedRun?.status, "running");
+    assert.equal(receivedProjection?.request.trigger.type, "member_mentioned");
+    assert.deepEqual(
+      receivedProjection?.messages.map((projectedMessage) => projectedMessage.id),
+      [message.id],
+    );
+    assert.deepEqual(receivedProjection?.docs, [doc]);
+    assert.deepEqual(receivedProjection?.docComments, [comment]);
 
-  assert.deepEqual(
-    result.events.map((event) => event.type),
-    ["run.started", "adapter.output"],
-  );
-  assert.deepEqual(container.harnessRunStore.listEvents(result.run.id), result.events);
-  assert.deepEqual(container.harnessRunStore.getRuntimeSession(runtime.id), runtime);
-});
+    assert.deepEqual(
+      result.events.map((event) => event.type),
+      ["run.started", "adapter.output"],
+    );
+    assert.deepEqual(container.harnessRunStore.listEvents(result.run.id), result.events);
+    assert.deepEqual(container.harnessRunStore.getRuntimeSession(runtime.id), runtime);
+  },
+);
 
 await withRunServiceContext(async ({ container, room, agent, message }) => {
   const existingRuntime: RuntimeSessionRef = {

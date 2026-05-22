@@ -5,6 +5,8 @@ import {
   docId,
   docRevisionId,
   getMentionedMemberIds,
+  getRoomMessagePlainText,
+  getRoomMessageReplyToId,
   harnessRunId,
   harnessSessionId,
   harnessTriggerId,
@@ -269,6 +271,37 @@ const mentions = getMentionedMemberIds(message);
 check(mentions.length === 1 && mentions[0] === alice, "mentions are unique and ordered");
 same(messageMentionsMember(message, alice), true, "message mentions Alice");
 same(messageMentionsMember(message, bob), false, "message does not mention Bob");
+
+same(
+  getRoomMessagePlainText({
+    kind: "text",
+    text: "legacy text",
+    content: [{ type: "text", text: "structured text", format: "markdown" }],
+  }),
+  "structured text",
+  "structured message content takes precedence over legacy text",
+);
+same(
+  getRoomMessagePlainText({
+    kind: "tool_result_summary",
+    content: [{ type: "tool_result", callId: "call_1", status: "ok", text: "tool output" }],
+  }),
+  "[tool_result:ok] tool output",
+  "tool result content parts render to stable text",
+);
+same(
+  getRoomMessagePlainText({ kind: "question" }),
+  "[question]",
+  "message plain text falls back to message kind",
+);
+same(
+  getRoomMessageReplyToId({
+    replyTo: { messageId: roomMessageId("rmsg_legacy_reply") },
+    thread: { replyToMessageId: roomMessageId("rmsg_thread_reply") },
+  }),
+  roomMessageId("rmsg_thread_reply"),
+  "thread reply target takes precedence over legacy replyTo",
+);
 
 const doc: Doc = {
   id: briefDoc,

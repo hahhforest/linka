@@ -1,9 +1,6 @@
-import type {
-  RuntimeAdapter,
-  RuntimeAdapterRun,
-  RuntimeAdapterRunInput,
-} from "@linka/harness";
+import type { RuntimeAdapter, RuntimeAdapterRun, RuntimeAdapterRunInput } from "@linka/harness";
 import {
+  getRoomMessagePlainText,
   runtimeEventId,
   runtimeSessionId,
   type HarnessProjection,
@@ -39,7 +36,7 @@ const getLastMessageSummary = (projection: HarnessProjection): string => {
   const message = projection.messages.at(-1);
   if (message === undefined) return "none";
 
-  const text = message.text?.trim();
+  const text = getRoomMessagePlainText(message).trim();
   const textSummary = text && text.length > 0 ? text : `[${message.kind}]`;
   return `#${message.sequence} ${getSenderLabel(message)}: ${textSummary}`;
 };

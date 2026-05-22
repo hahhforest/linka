@@ -330,6 +330,33 @@ CREATE INDEX IF NOT EXISTS idx_harness_context_snapshots_agent_created
   ON harness_context_snapshots (agent_member_id, created_at);
 `,
   },
+  {
+    version: 9,
+    name: "create_pending_interactions",
+    sql: `
+CREATE TABLE IF NOT EXISTS pending_interactions (
+  pending_interaction_id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES harness_sessions(harness_session_id) ON DELETE CASCADE,
+  turn_id TEXT,
+  room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+  agent_member_id TEXT NOT NULL REFERENCES room_members(member_id),
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  request_message_id TEXT REFERENCES room_messages(message_id) ON DELETE SET NULL,
+  response_message_id TEXT REFERENCES room_messages(message_id) ON DELETE SET NULL,
+  expires_at INTEGER,
+  payload_json TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_interactions_room_status_created
+  ON pending_interactions (room_id, status, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_pending_interactions_session_status_created
+  ON pending_interactions (session_id, status, created_at);
+`,
+  },
 ];
 
 export const runMigrations = (handle: DatabaseHandle): MigrationResult => {

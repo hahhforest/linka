@@ -19,6 +19,10 @@ import {
   type HarnessSessionStore,
 } from "../store/harness-session-store.js";
 import { createMessageStore, type MessageStore } from "../store/message-store.js";
+import {
+  createPendingInteractionStore,
+  type PendingInteractionStore,
+} from "../store/pending-interaction-store.js";
 import { createRoomStore, type RoomStore } from "../store/room-store.js";
 
 export const DAEMON_VERSION = "0.0.0";
@@ -49,6 +53,7 @@ export interface DaemonContainerOptions {
   harnessRunStore?: HarnessRunStore;
   harnessSessionStore?: HarnessSessionStore;
   contextSnapshotStore?: ContextSnapshotStore;
+  pendingInteractionStore?: PendingInteractionStore;
 }
 
 export interface DaemonContainer {
@@ -68,6 +73,7 @@ export interface DaemonContainer {
   readonly harnessRunStore: HarnessRunStore;
   readonly harnessSessionStore: HarnessSessionStore;
   readonly contextSnapshotStore: ContextSnapshotStore;
+  readonly pendingInteractionStore: PendingInteractionStore;
   readonly uptimeMs: () => number;
   readonly close: () => void;
 }
@@ -84,8 +90,11 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
     options.roomStore !== undefined &&
     options.messageStore !== undefined &&
     options.docStore !== undefined &&
+    options.announcementStore !== undefined &&
     options.harnessRunStore !== undefined &&
-    options.harnessSessionStore !== undefined;
+    options.harnessSessionStore !== undefined &&
+    options.contextSnapshotStore !== undefined &&
+    options.pendingInteractionStore !== undefined;
   const ownsDatabase = options.database === undefined && !allStoresProvided;
   const database =
     options.database ?? (allStoresProvided ? null : openContainerDatabase(databasePath));
@@ -105,6 +114,11 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
     (database
       ? createMigratedContextSnapshotStore(database)
       : createUnavailableContextSnapshotStore());
+  const pendingInteractionStore =
+    options.pendingInteractionStore ??
+    (database
+      ? createMigratedPendingInteractionStore(database)
+      : createUnavailablePendingInteractionStore());
 
   return {
     profile,
@@ -123,6 +137,7 @@ export function createDaemonContainer(options: DaemonContainerOptions = {}): Dae
     harnessRunStore,
     harnessSessionStore,
     contextSnapshotStore,
+    pendingInteractionStore,
     uptimeMs: () => Math.max(0, now().getTime() - startedAt.getTime()),
     close: () => {
       if (ownsDatabase) {
@@ -226,6 +241,11 @@ function createMigratedContextSnapshotStore(database: DatabaseHandle): ContextSn
   return createContextSnapshotStore(database);
 }
 
+function createMigratedPendingInteractionStore(database: DatabaseHandle): PendingInteractionStore {
+  runMigrations(database);
+  return createPendingInteractionStore(database);
+}
+
 function createUnavailableContextSnapshotStore(): ContextSnapshotStore {
   const unavailable = (): never => {
     throw new Error("contextSnapshotStore is required when database is not provided");
@@ -236,5 +256,19 @@ function createUnavailableContextSnapshotStore(): ContextSnapshotStore {
     getSnapshot: () => undefined,
     listSnapshotsByRoom: () => [],
     listSnapshotsByAgent: () => [],
+  };
+}
+
+function createUnavailablePendingInteractionStore(): PendingInteractionStore {
+  const unavailable = (): never => {
+    throw new Error("pendingInteractionStore is required when database is not provided");
+  };
+
+  return {
+    createInteraction: unavailable,
+    getInteraction: () => undefined,
+    listInteractionsByRoom: () => [],
+    listOpenInteractionsBySession: () => [],
+    updateInteractionStatus: unavailable,
   };
 }

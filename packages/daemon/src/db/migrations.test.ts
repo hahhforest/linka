@@ -46,7 +46,7 @@ const handle = openDatabase({ databasePath: ":memory:" });
 
 try {
   const firstRun = runMigrations(handle);
-  assert.deepEqual(firstRun.appliedVersions, [1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(firstRun.appliedVersions, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
   const secondRun = runMigrations(handle);
   assert.deepEqual(secondRun.appliedVersions, []);
@@ -54,7 +54,7 @@ try {
   const migrationCount = handle.database
     .prepare("SELECT COUNT(*) AS count FROM linka_migrations")
     .get() as { count: number };
-  assert.equal(migrationCount.count, 8);
+  assert.equal(migrationCount.count, 9);
 
   for (const tableName of [
     "daemon_events",
@@ -71,6 +71,7 @@ try {
     "harness_triggers",
     "announcements",
     "harness_context_snapshots",
+    "pending_interactions",
   ]) {
     assert.equal(hasTable(handle, tableName), true, tableName);
   }
@@ -97,6 +98,8 @@ try {
     "idx_announcements_room_updated",
     "idx_harness_context_snapshots_room_created",
     "idx_harness_context_snapshots_agent_created",
+    "idx_pending_interactions_room_status_created",
+    "idx_pending_interactions_session_status_created",
   ]) {
     assert.equal(hasIndex(handle, indexName), true, indexName);
   }
@@ -261,6 +264,22 @@ try {
     "source_doc_revision_ids_json",
     "token_estimate",
     "redaction_state",
+  ]);
+
+  assertColumns(handle, "pending_interactions", [
+    "pending_interaction_id",
+    "session_id",
+    "turn_id",
+    "room_id",
+    "agent_member_id",
+    "kind",
+    "status",
+    "created_at",
+    "updated_at",
+    "request_message_id",
+    "response_message_id",
+    "expires_at",
+    "payload_json",
   ]);
 
   console.log("daemon db migrations: ok");

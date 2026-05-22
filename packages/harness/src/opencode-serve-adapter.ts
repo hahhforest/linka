@@ -3,6 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { TextDecoder } from "node:util";
 
 import {
+  getRoomMessagePlainText,
   runtimeSessionId,
   unixMs,
   type HarnessProjection,
@@ -271,7 +272,7 @@ const formatProjectionText = (projection: HarnessProjection): string => {
         message.sender.kind === "member"
           ? message.sender.memberId
           : (message.sender.label ?? "system");
-      const text = message.text ?? "";
+      const text = getRoomMessagePlainText(message);
       return `- #${message.sequence} ${sender} [${message.kind}]: ${text}`;
     }),
     "",

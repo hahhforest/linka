@@ -9,6 +9,9 @@ import {
   type DocRevisionId,
   type HarnessContextSnapshot,
   type HarnessRun,
+  type HarnessSessionId,
+  type HarnessTriggerId,
+  type HarnessTurnId,
   type RuntimeEvent,
   type RuntimeSessionRef,
   type Room,
@@ -30,6 +33,9 @@ export interface StartHarnessRunInput {
   readonly roomId: Room["id"];
   readonly targetMemberId: RoomMember["id"];
   readonly triggerMessageId?: RoomMessage["id"];
+  readonly harnessSessionId?: HarnessSessionId;
+  readonly harnessTriggerId?: HarnessTriggerId;
+  readonly harnessTurnId?: HarnessTurnId;
   readonly runtime?: RuntimeSessionRef;
   readonly docIds?: readonly DocId[];
   readonly now?: () => Date | number;
@@ -100,14 +106,23 @@ const createContextSnapshot = ({
   run,
   projection,
   createdAt,
+  harnessSessionId,
+  harnessTriggerId,
+  harnessTurnId,
 }: {
   readonly run: HarnessRun;
   readonly projection: ReturnType<typeof createHarnessProjection>;
   readonly createdAt: UnixMs;
+  readonly harnessSessionId?: HarnessSessionId;
+  readonly harnessTriggerId?: HarnessTriggerId;
+  readonly harnessTurnId?: HarnessTurnId;
 }): HarnessContextSnapshot => ({
   id: createContextSnapshotId(),
   roomId: run.roomId,
   agentMemberId: run.targetMemberId,
+  ...(harnessSessionId === undefined ? {} : { harnessSessionId }),
+  ...(harnessTriggerId === undefined ? {} : { harnessTriggerId }),
+  ...(harnessTurnId === undefined ? {} : { harnessTurnId }),
   harnessRunId: run.id,
   createdAt,
   projectionVersion: 1,
@@ -250,6 +265,9 @@ export const startHarnessRun = async ({
   roomId,
   targetMemberId,
   triggerMessageId,
+  harnessSessionId,
+  harnessTriggerId,
+  harnessTurnId,
   runtime,
   docIds,
   now,
@@ -301,7 +319,14 @@ export const startHarnessRun = async ({
     ...(docIds === undefined ? {} : { docIds }),
   });
   const snapshot = container.contextSnapshotStore.createSnapshot(
-    createContextSnapshot({ run, projection, createdAt }),
+    createContextSnapshot({
+      run,
+      projection,
+      createdAt,
+      harnessSessionId,
+      harnessTriggerId,
+      harnessTurnId,
+    }),
   );
   const events: RuntimeEvent[] = [];
 

@@ -74,7 +74,9 @@ const human = makeMember("human", "human");
 const agent = makeMember("agent", "agent");
 const otherRoomId = roomId("room_other");
 
-const makeRequest = (overrides: Partial<HarnessProjectionRequest> = {}): HarnessProjectionRequest => ({
+const makeRequest = (
+  overrides: Partial<HarnessProjectionRequest> = {},
+): HarnessProjectionRequest => ({
   roomId: room.id,
   memberId: agent.id,
   participantId: agent.participantId,
@@ -91,7 +93,11 @@ const makeMessage = (sequence: number): RoomMessage => ({
   createdAt: unixMs(1_716_000_000_000 + sequence),
   editedAt: unixMs(1_716_000_001_000 + sequence),
   text: `message ${sequence}`,
+  content: [{ type: "text", text: `structured message ${sequence}` }],
+  llmRole: "user",
+  thread: { replyToMessageId: roomMessageId("rmsg_parent") },
   mentions: [{ memberId: agent.id, displayText: "@agent" }],
+  trace: { sourceMessageIds: [roomMessageId("rmsg_source")] },
   visibility: roomVisibility,
   notification: notificationPolicy,
 });
@@ -151,6 +157,16 @@ const makeComment = (doc: Doc, sequence: number): DocComment => ({
   assert.equal("permissions" in projection.viewer, false);
   assert.equal("notificationPolicy" in projection.room, false);
   assert.equal("editedAt" in projection.messages[0], false);
+  assert.deepEqual(projection.messages[0]?.content, [
+    { type: "text", text: "structured message 1" },
+  ]);
+  assert.equal(projection.messages[0]?.llmRole, "user");
+  assert.deepEqual(projection.messages[0]?.thread, {
+    replyToMessageId: roomMessageId("rmsg_parent"),
+  });
+  assert.deepEqual(projection.messages[0]?.trace, {
+    sourceMessageIds: [roomMessageId("rmsg_source")],
+  });
 }
 
 {

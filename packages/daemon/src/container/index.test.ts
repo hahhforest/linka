@@ -7,11 +7,14 @@ import { test } from "node:test";
 import { resolvePort } from "@linka/config";
 import { harnessSessionId, roomId, roomMemberId, unixMs } from "@linka/shared";
 
+import type { AnnouncementStore } from "../store/announcement-store.js";
+import type { ContextSnapshotStore } from "../store/context-snapshot-store.js";
 import type { EventStore } from "../store/event-store.js";
 import type { DocStore } from "../store/doc-store.js";
 import type { HarnessRunStore } from "../store/harness-run-store.js";
 import type { HarnessSessionStore } from "../store/harness-session-store.js";
 import type { MessageStore } from "../store/message-store.js";
+import type { PendingInteractionStore } from "../store/pending-interaction-store.js";
 import type { RoomStore } from "../store/room-store.js";
 import { createDaemonContainer } from "./index.js";
 
@@ -107,6 +110,7 @@ test("createDaemonContainer opens SQLite, runs migrations, and creates stores", 
     assert.equal(typeof container.docStore.createDoc, "function");
     assert.equal(typeof container.harnessRunStore.createRun, "function");
     assert.equal(typeof container.harnessSessionStore.createSession, "function");
+    assert.equal(typeof container.pendingInteractionStore.createInteraction, "function");
     assert.deepEqual(container.docStore.listDocsByRoom(roomId("room_empty")), []);
     assert.deepEqual(container.harnessRunStore.listRunsByRoom(roomId("room_empty")), []);
 
@@ -150,6 +154,21 @@ test("createDaemonContainer uses provided stores without opening SQLite", () => 
     createComment: (comment) => comment,
     listComments: () => [],
   } satisfies DocStore;
+  const announcementStore = {
+    createAnnouncement: (announcement) => announcement,
+    updateAnnouncement: (update) => ({
+      id: update.id,
+      roomId: roomId("room_empty"),
+      body: update.body ?? "body",
+      createdAt: unixMs(0),
+      updatedAt: update.updatedAt,
+      visibility: { scope: "room" },
+      ...(update.title === undefined ? {} : { title: update.title ?? undefined }),
+    }),
+    deleteAnnouncement: () => false,
+    getAnnouncement: () => undefined,
+    listAnnouncementsByRoom: () => [],
+  } satisfies AnnouncementStore;
   const harnessRunStore = {
     createRuntimeSession: (session) => session,
     getRuntimeSession: () => undefined,
@@ -241,6 +260,32 @@ test("createDaemonContainer uses provided stores without opening SQLite", () => 
       ...(update.error === undefined ? {} : { error: update.error ?? undefined }),
     }),
   } satisfies HarnessSessionStore;
+  const contextSnapshotStore = {
+    createSnapshot: (snapshot) => snapshot,
+    getSnapshot: () => undefined,
+    listSnapshotsByRoom: () => [],
+    listSnapshotsByAgent: () => [],
+  } satisfies ContextSnapshotStore;
+  const pendingInteractionStore = {
+    createInteraction: (interaction) => interaction,
+    getInteraction: () => undefined,
+    listInteractionsByRoom: () => [],
+    listOpenInteractionsBySession: () => [],
+    updateInteractionStatus: (input) => ({
+      id: input.id,
+      sessionId: harnessSessionId("hsess_empty"),
+      roomId: roomId("room_empty"),
+      agentMemberId: roomMemberId("rmem_empty"),
+      kind: "question",
+      status: input.status,
+      createdAt: input.updatedAt,
+      updatedAt: input.updatedAt,
+      ...(input.responseMessageId === undefined
+        ? {}
+        : { responseMessageId: input.responseMessageId ?? undefined }),
+      ...(input.payload === undefined ? {} : { payload: input.payload ?? undefined }),
+    }),
+  } satisfies PendingInteractionStore;
 
   const container = createDaemonContainer({
     databasePath: "",
@@ -252,8 +297,11 @@ test("createDaemonContainer uses provided stores without opening SQLite", () => 
     roomStore,
     messageStore,
     docStore,
+    announcementStore,
     harnessRunStore,
     harnessSessionStore,
+    contextSnapshotStore,
+    pendingInteractionStore,
   });
 
   try {
@@ -263,8 +311,11 @@ test("createDaemonContainer uses provided stores without opening SQLite", () => 
     assert.equal(container.roomStore, roomStore);
     assert.equal(container.messageStore, messageStore);
     assert.equal(container.docStore, docStore);
+    assert.equal(container.announcementStore, announcementStore);
     assert.equal(container.harnessRunStore, harnessRunStore);
     assert.equal(container.harnessSessionStore, harnessSessionStore);
+    assert.equal(container.contextSnapshotStore, contextSnapshotStore);
+    assert.equal(container.pendingInteractionStore, pendingInteractionStore);
   } finally {
     container.close();
   }
