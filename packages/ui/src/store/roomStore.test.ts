@@ -53,6 +53,7 @@ const resetStore = (): void => {
     docDetailsByDocId: {},
     harnessRunsByRoomId: {},
     harnessSessionsByRoomId: {},
+    pendingInteractionsByRoomId: {},
     runtimeEventsByRunId: {},
     filesByRoomId: {},
     announcementsByRoomId: {},
@@ -275,6 +276,7 @@ const responses = [
   makeJsonResponse({ ok: true, announcements: [apiAnnouncement] }),
   makeJsonResponse({ ok: true, runs: [apiRun] }),
   makeJsonResponse({ ok: true, sessions: [apiSession] }),
+  makeJsonResponse({ ok: true, interactions: [] }),
   makeJsonResponse({ ok: true, events: [apiRunEvent] }),
   makeJsonResponse({ ok: true, message: composerApiMessage }, 201),
   makeJsonResponse({ ok: true, members: apiMembers }),
@@ -283,6 +285,7 @@ const responses = [
   makeJsonResponse({ ok: true, announcements: [apiAnnouncement] }),
   makeJsonResponse({ ok: true, runs: [apiRun] }),
   makeJsonResponse({ ok: true, sessions: [apiSession] }),
+  makeJsonResponse({ ok: true, interactions: [] }),
   makeJsonResponse({ ok: true, events: [apiRunEvent] }),
   makeJsonResponse({ ok: true, doc: createdApiDoc }, 201),
 ];
@@ -324,6 +327,7 @@ await withMockFetch(
         `GET /linka/rooms/${apiRoom.id}/announcements`,
         `GET /linka/rooms/${apiRoom.id}/harness-runs`,
         `GET /linka/rooms/${apiRoom.id}/harness-sessions`,
+        `GET /linka/rooms/${apiRoom.id}/pending-interactions`,
         `GET /linka/harness-runs/${apiRun.id}/events`,
       ],
     );
@@ -338,7 +342,7 @@ await withMockFetch(
     assert.deepEqual(state.harnessSessionsByRoomId[apiRoom.id], [apiSession]);
     assert.equal(state.isSending, false);
 
-    const composerPost = requests[8];
+    const composerPost = requests[9];
     assert.equal(composerPost?.input, `/linka/rooms/${apiRoom.id}/messages`);
     assert.equal(composerPost?.init.method, "POST");
     assert.deepEqual(JSON.parse(String(composerPost?.init.body)), {
@@ -348,7 +352,7 @@ await withMockFetch(
     });
 
     assert.deepEqual(
-      requests.slice(8).map((request) => `${request.init.method ?? "GET"} ${request.input}`),
+      requests.slice(9).map((request) => `${request.init.method ?? "GET"} ${request.input}`),
       [
         `POST /linka/rooms/${apiRoom.id}/messages`,
         `GET /linka/rooms/${apiRoom.id}/members`,
@@ -357,6 +361,7 @@ await withMockFetch(
         `GET /linka/rooms/${apiRoom.id}/announcements`,
         `GET /linka/rooms/${apiRoom.id}/harness-runs`,
         `GET /linka/rooms/${apiRoom.id}/harness-sessions`,
+        `GET /linka/rooms/${apiRoom.id}/pending-interactions`,
         `GET /linka/harness-runs/${apiRun.id}/events`,
       ],
     );
@@ -370,7 +375,7 @@ await withMockFetch(
     assert.equal(state.errorMessage, undefined);
     assert.deepEqual(state.docsByRoomId[apiRoom.id], [...apiDocs, createdApiDoc]);
 
-    const docPost = requests[16];
+    const docPost = requests[18];
     assert.equal(docPost?.input, `/linka/rooms/${apiRoom.id}/docs`);
     assert.equal(docPost?.init.method, "POST");
     assert.deepEqual(JSON.parse(String(docPost?.init.body)), {
@@ -420,6 +425,7 @@ const createRoomResponses = [
   makeJsonResponse({ ok: true, announcements: [] }),
   makeJsonResponse({ ok: true, runs: [] }),
   makeJsonResponse({ ok: true, sessions: [] }),
+  makeJsonResponse({ ok: true, interactions: [] }),
 ];
 
 await withMockFetch(
@@ -475,6 +481,7 @@ assert.deepEqual(
     `GET /linka/rooms/${createdDefaultsRoom.id}/announcements`,
     `GET /linka/rooms/${createdDefaultsRoom.id}/harness-runs`,
     `GET /linka/rooms/${createdDefaultsRoom.id}/harness-sessions`,
+    `GET /linka/rooms/${createdDefaultsRoom.id}/pending-interactions`,
   ],
 );
 assert.deepEqual(JSON.parse(String(createRoomRequests[0]?.init.body)), {
@@ -519,6 +526,7 @@ const handoffResponses = [
   makeJsonResponse({ ok: true, announcements: [apiAnnouncement] }),
   makeJsonResponse({ ok: true, runs: [] }),
   makeJsonResponse({ ok: true, sessions: [] }),
+  makeJsonResponse({ ok: true, interactions: [] }),
 ];
 
 await withMockFetch(
@@ -543,6 +551,7 @@ await withMockFetch(
       docDetailsByDocId: {},
       harnessRunsByRoomId: { [apiRoom.id]: [] },
       harnessSessionsByRoomId: { [apiRoom.id]: [] },
+      pendingInteractionsByRoomId: { [apiRoom.id]: [] },
       runtimeEventsByRunId: {},
       filesByRoomId: { [apiRoom.id]: [] },
       announcementsByRoomId: { [apiRoom.id]: [] },
@@ -575,6 +584,7 @@ assert.deepEqual(
     `GET /linka/rooms/${apiRoom.id}/announcements`,
     `GET /linka/rooms/${apiRoom.id}/harness-runs`,
     `GET /linka/rooms/${apiRoom.id}/harness-sessions`,
+    `GET /linka/rooms/${apiRoom.id}/pending-interactions`,
   ],
 );
 assert.deepEqual(JSON.parse(String(handoffRequests[1]?.init.body)), {
@@ -660,6 +670,7 @@ await withMockFetch(
       docDetailsByDocId: {},
       harnessRunsByRoomId: { [apiRoom.id]: [] },
       harnessSessionsByRoomId: { [apiRoom.id]: [] },
+      pendingInteractionsByRoomId: { [apiRoom.id]: [] },
       runtimeEventsByRunId: {},
       filesByRoomId: { [apiRoom.id]: [] },
       announcementsByRoomId: { [apiRoom.id]: [apiAnnouncement] },
@@ -767,6 +778,7 @@ const resetStoreForRealtimeEvents = (): void => {
     docDetailsByDocId: {},
     harnessRunsByRoomId: { [demoRoom.room.id]: [apiRun] },
     harnessSessionsByRoomId: { [demoRoom.room.id]: [apiSession] },
+    pendingInteractionsByRoomId: { [demoRoom.room.id]: [] },
     runtimeEventsByRunId: { [apiRun.id]: [apiRunEvent] },
     filesByRoomId: { [demoRoom.room.id]: [] },
     announcementsByRoomId: { [demoRoom.room.id]: [] },

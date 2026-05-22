@@ -116,7 +116,10 @@ const responses = [
   makeJsonResponse({ ok: true, members: demoRoom.members }),
   makeJsonResponse({ ok: true, messages: [...demoRoom.messages, apiComposerMessage] }),
   makeJsonResponse({ ok: true, docs: [] }),
+  makeJsonResponse({ ok: true, announcements: [] }),
   makeJsonResponse({ ok: true, runs: [] }),
+  makeJsonResponse({ ok: true, sessions: [] }),
+  makeJsonResponse({ ok: true, interactions: [] }),
 ];
 
 await withMockFetch(

@@ -9,6 +9,9 @@ import {
   type DocStatus,
   type HarnessRun,
   type HarnessSession,
+  type PendingInteraction,
+  type PendingInteractionId,
+  type PendingInteractionStatus,
   type PinnedItem,
   type Room,
   type RoomFile,
@@ -36,6 +39,10 @@ import {
 import { listHarnessRunEvents, listRoomHarnessRuns } from "../services/harnessRunsService.js";
 import { listRoomHarnessSessions } from "../services/harnessSessionsService.js";
 import {
+  listRoomPendingInteractions,
+  respondPendingInteraction,
+} from "../services/pendingInteractionsService.js";
+import {
   addRoomMember,
   createRoom,
   listRoomMembers,
@@ -60,6 +67,7 @@ export interface RoomState {
   readonly docDetailsByDocId: Readonly<Record<string, DocDetailSnapshot>>;
   readonly harnessRunsByRoomId: Readonly<Record<string, readonly HarnessRun[]>>;
   readonly harnessSessionsByRoomId: Readonly<Record<string, readonly HarnessSession[]>>;
+  readonly pendingInteractionsByRoomId: Readonly<Record<string, readonly PendingInteraction[]>>;
   readonly runtimeEventsByRunId: Readonly<Record<string, readonly RuntimeEvent[]>>;
   readonly filesByRoomId: Readonly<Record<string, readonly RoomFile[]>>;
   readonly announcementsByRoomId: Readonly<Record<string, readonly Announcement[]>>;
@@ -80,6 +88,13 @@ export interface RoomState {
   readonly refreshActiveRoom: () => Promise<void>;
   readonly applyRoomEvent: (event: RealtimeRoomEvent) => void;
   readonly sendComposerMessage: (text: string) => Promise<void>;
+  readonly respondToPendingInteraction: (
+    interactionId: PendingInteractionId,
+    input: {
+      readonly text: string;
+      readonly status?: Exclude<PendingInteractionStatus, "requested">;
+    },
+  ) => Promise<PendingInteraction | undefined>;
   readonly createActiveRoomDoc: (input: {
     readonly title: string;
     readonly body?: string;
@@ -126,6 +141,7 @@ const resetWorkspaceState = (
     docDetailsByDocId: {},
     harnessRunsByRoomId: {},
     harnessSessionsByRoomId: {},
+    pendingInteractionsByRoomId: {},
     runtimeEventsByRunId: {},
     filesByRoomId: {},
     announcementsByRoomId: {},
@@ -149,15 +165,25 @@ const loadApiRoomData = async (
   readonly announcements: readonly Announcement[];
   readonly harnessRuns: readonly HarnessRun[];
   readonly harnessSessions: readonly HarnessSession[];
+  readonly pendingInteractions: readonly PendingInteraction[];
   readonly runtimeEventsByRunId: Readonly<Record<string, readonly RuntimeEvent[]>>;
 }> => {
-  const [members, messages, docs, announcements, harnessRuns, harnessSessions] = await Promise.all([
+  const [
+    members,
+    messages,
+    docs,
+    announcements,
+    harnessRuns,
+    harnessSessions,
+    pendingInteractions,
+  ] = await Promise.all([
     listRoomMembers(room.id),
     listRoomMessages(room.id, { afterSequence: 0, limit: 500 }),
     listRoomDocs(room.id),
     listRoomAnnouncements(room.id),
     listRoomHarnessRuns(room.id),
     listRoomHarnessSessions(room.id),
+    listRoomPendingInteractions(room.id),
   ]);
   const runtimeEventsByRunId = Object.fromEntries(
     await Promise.all(
@@ -172,6 +198,7 @@ const loadApiRoomData = async (
     announcements,
     harnessRuns,
     harnessSessions,
+    pendingInteractions,
     runtimeEventsByRunId,
   };
 };
@@ -243,6 +270,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   docDetailsByDocId: {},
   harnessRunsByRoomId: {},
   harnessSessionsByRoomId: {},
+  pendingInteractionsByRoomId: {},
   runtimeEventsByRunId: {},
   filesByRoomId: {},
   announcementsByRoomId: {},
@@ -278,6 +306,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         announcements,
         harnessRuns,
         harnessSessions,
+        pendingInteractions,
         runtimeEventsByRunId,
       } = await loadApiRoomData(activeRoom);
 
@@ -290,6 +319,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         docDetailsByDocId: {},
         harnessRunsByRoomId: { [activeRoom.id]: harnessRuns },
         harnessSessionsByRoomId: { [activeRoom.id]: harnessSessions },
+        pendingInteractionsByRoomId: { [activeRoom.id]: pendingInteractions },
         runtimeEventsByRunId,
         filesByRoomId: { [activeRoom.id]: [] },
         announcementsByRoomId: { [activeRoom.id]: announcements },
@@ -347,6 +377,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         announcements,
         harnessRuns,
         harnessSessions,
+        pendingInteractions,
         runtimeEventsByRunId,
       } = await loadApiRoomData(room);
 
@@ -362,6 +393,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         harnessSessionsByRoomId: {
           ...current.harnessSessionsByRoomId,
           [room.id]: harnessSessions,
+        },
+        pendingInteractionsByRoomId: {
+          ...current.pendingInteractionsByRoomId,
+          [room.id]: pendingInteractions,
         },
         runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
         filesByRoomId: { ...current.filesByRoomId, [room.id]: [] },
@@ -400,6 +435,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         announcements,
         harnessRuns,
         harnessSessions,
+        pendingInteractions,
         runtimeEventsByRunId,
       } = await loadApiRoomData(room);
       set((current) => ({
@@ -411,6 +447,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         harnessSessionsByRoomId: {
           ...current.harnessSessionsByRoomId,
           [roomId]: harnessSessions,
+        },
+        pendingInteractionsByRoomId: {
+          ...current.pendingInteractionsByRoomId,
+          [roomId]: pendingInteractions,
         },
         runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
         errorMessage: undefined,
@@ -436,6 +476,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         announcements,
         harnessRuns,
         harnessSessions,
+        pendingInteractions,
         runtimeEventsByRunId,
       } = await loadApiRoomData(room);
       set((current) => ({
@@ -447,6 +488,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         harnessSessionsByRoomId: {
           ...current.harnessSessionsByRoomId,
           [room.id]: harnessSessions,
+        },
+        pendingInteractionsByRoomId: {
+          ...current.pendingInteractionsByRoomId,
+          [room.id]: pendingInteractions,
         },
         runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
         errorMessage: undefined,
@@ -491,6 +536,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           harnessSessionsByRoomId: {
             ...current.harnessSessionsByRoomId,
             [room.id]: current.harnessSessionsByRoomId[room.id] ?? [],
+          },
+          pendingInteractionsByRoomId: {
+            ...current.pendingInteractionsByRoomId,
+            [room.id]: current.pendingInteractionsByRoomId[room.id] ?? [],
           },
           filesByRoomId: {
             ...current.filesByRoomId,
@@ -599,6 +648,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         announcements,
         harnessRuns,
         harnessSessions,
+        pendingInteractions,
         runtimeEventsByRunId,
       } = await loadApiRoomData(room);
       set((current) => ({
@@ -614,6 +664,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           ...current.harnessSessionsByRoomId,
           [room.id]: harnessSessions,
         },
+        pendingInteractionsByRoomId: {
+          ...current.pendingInteractionsByRoomId,
+          [room.id]: pendingInteractions,
+        },
         runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
         isSending: false,
         errorMessage: undefined,
@@ -621,6 +675,67 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unable to send room message";
       set({ isSending: false, errorMessage });
+    }
+  },
+  respondToPendingInteraction: async (interactionId, input) => {
+    const text = input.text.trim();
+    if (text.length === 0) {
+      set({ errorMessage: "Pending interaction response cannot be empty" });
+      return undefined;
+    }
+
+    const state = get();
+    const room = state.rooms.find((candidate) => candidate.id === state.activeRoomId);
+    if (state.source !== "api" || !room) {
+      set({ errorMessage: "Responding to pending interactions requires an API-backed room" });
+      return undefined;
+    }
+
+    const sender = findHumanSender(state.membersByRoomId[room.id] ?? []);
+    if (!sender) {
+      set({ errorMessage: "No human room member available" });
+      return undefined;
+    }
+
+    try {
+      const { interaction } = await respondPendingInteraction(interactionId, {
+        senderMemberId: sender.id,
+        text,
+        ...(input.status === undefined ? {} : { status: input.status }),
+      });
+      const {
+        members,
+        messages,
+        docs,
+        announcements,
+        harnessRuns,
+        harnessSessions,
+        pendingInteractions,
+        runtimeEventsByRunId,
+      } = await loadApiRoomData(room);
+      set((current) => ({
+        membersByRoomId: { ...current.membersByRoomId, [room.id]: members },
+        messagesByRoomId: { ...current.messagesByRoomId, [room.id]: messages },
+        docsByRoomId: { ...current.docsByRoomId, [room.id]: docs },
+        announcementsByRoomId: { ...current.announcementsByRoomId, [room.id]: announcements },
+        harnessRunsByRoomId: { ...current.harnessRunsByRoomId, [room.id]: harnessRuns },
+        harnessSessionsByRoomId: {
+          ...current.harnessSessionsByRoomId,
+          [room.id]: harnessSessions,
+        },
+        pendingInteractionsByRoomId: {
+          ...current.pendingInteractionsByRoomId,
+          [room.id]: pendingInteractions,
+        },
+        runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
+        errorMessage: undefined,
+      }));
+      return interaction;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unable to respond to pending interaction";
+      set({ errorMessage });
+      return undefined;
     }
   },
   createActiveRoomDoc: async (input) => {
@@ -687,6 +802,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           announcements,
           harnessRuns,
           harnessSessions,
+          pendingInteractions,
           runtimeEventsByRunId,
         } = await loadApiRoomData(room);
         set((current) => ({
@@ -698,6 +814,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
           harnessSessionsByRoomId: {
             ...current.harnessSessionsByRoomId,
             [room.id]: harnessSessions,
+          },
+          pendingInteractionsByRoomId: {
+            ...current.pendingInteractionsByRoomId,
+            [room.id]: pendingInteractions,
           },
           runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
           isCreatingDoc: false,

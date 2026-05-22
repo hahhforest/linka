@@ -10,6 +10,7 @@ import { createHealthRoute } from "./api/health.js";
 import { createHarnessExportsRoute } from "./api/harness-exports.js";
 import { createHarnessRunsRoute } from "./api/harness-runs.js";
 import { createHarnessSessionsRoute } from "./api/harness-sessions.js";
+import { createPendingInteractionsRoute } from "./api/pending-interactions.js";
 import { createRoomsRoute, type CreateRoomsRouteOptions } from "./api/rooms.js";
 import type { DaemonContainer } from "./container/index.js";
 
@@ -37,6 +38,7 @@ export function createDaemonApp(
   linka.route("/", createHarnessExportsRoute(container));
   linka.route("/", createHarnessRunsRoute(container));
   linka.route("/", createHarnessSessionsRoute(container));
+  linka.route("/", createPendingInteractionsRoute(container));
 
   return app;
 }

@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
-import type { Announcement, DocStatus, RoomMember, RuntimeEvent } from "@linka/shared";
+import type {
+  Announcement,
+  DocStatus,
+  PendingInteraction,
+  RoomMember,
+  RuntimeEvent,
+} from "@linka/shared";
 
 import {
   exportHarnessRunTrajectory,
@@ -16,6 +22,7 @@ const emptyFiles = [] as const;
 const emptyPins = [] as const;
 const emptyRuns = [] as const;
 const emptySessions = [] as const;
+const emptyPendingInteractions = [] as const;
 const emptyRuntimeEventsByRunId = {} as const;
 
 type RailTab = "info" | "members" | "announcements" | "docs" | "activity" | "files";
@@ -157,6 +164,8 @@ export const MemberRail = () => {
   const [isSavingAnnouncement, setIsSavingAnnouncement] = useState(false);
   const [deletingAnnouncementId, setDeletingAnnouncementId] = useState<string | undefined>();
   const [selectedActivityId, setSelectedActivityId] = useState<string | undefined>();
+  const [pendingResponseDrafts, setPendingResponseDrafts] = useState<Record<string, string>>({});
+  const [respondingInteractionId, setRespondingInteractionId] = useState<string | undefined>();
   const [trajectoryExportStatus, setTrajectoryExportStatus] =
     useState<TrajectoryExportStatus>("idle");
   const [trajectoryExport, setTrajectoryExport] = useState<
@@ -187,6 +196,11 @@ export const MemberRail = () => {
   const sessions = useRoomStore((state) =>
     activeRoomId ? (state.harnessSessionsByRoomId[activeRoomId] ?? emptySessions) : emptySessions,
   );
+  const pendingInteractions = useRoomStore((state) =>
+    activeRoomId
+      ? (state.pendingInteractionsByRoomId[activeRoomId] ?? emptyPendingInteractions)
+      : emptyPendingInteractions,
+  );
   const runtimeEventsByRunId = useRoomStore(
     (state) => state.runtimeEventsByRunId ?? emptyRuntimeEventsByRunId,
   );
@@ -204,6 +218,7 @@ export const MemberRail = () => {
   const createActiveRoomAnnouncement = useRoomStore((state) => state.createActiveRoomAnnouncement);
   const updateActiveRoomAnnouncement = useRoomStore((state) => state.updateActiveRoomAnnouncement);
   const deleteActiveRoomAnnouncement = useRoomStore((state) => state.deleteActiveRoomAnnouncement);
+  const respondToPendingInteraction = useRoomStore((state) => state.respondToPendingInteraction);
   const trimmedDocTitle = docTitle.trim();
   const trimmedDocEditTitle = docEditTitle.trim();
   const trimmedDocCommentBody = docCommentBody.trim();
@@ -238,6 +253,34 @@ export const MemberRail = () => {
   const trajectoryExportPreview = trajectoryExport ? truncatePreview(trajectoryExport.text) : "";
   const hasActiveRoom = activeRoomId !== undefined;
   const canWriteRoomContext = isApiBacked && hasActiveRoom;
+  const requestedInteractions = pendingInteractions.filter(
+    (interaction) => interaction.status === "requested",
+  );
+
+  const pendingSummary = (interaction: PendingInteraction): string => {
+    const prompt = interaction.payload?.prompt;
+    const reason = interaction.payload?.reason;
+    if (typeof prompt === "string" && prompt.trim().length > 0) return prompt;
+    if (typeof reason === "string" && reason.trim().length > 0) return reason;
+    return `${interaction.kind} requested by ${interaction.agentMemberId}`;
+  };
+
+  const handlePendingResponse = (interaction: PendingInteraction) => {
+    if (!canWriteRoomContext || respondingInteractionId) return;
+    const draft = pendingResponseDrafts[interaction.id]?.trim() ?? "";
+    if (draft.length === 0) return;
+
+    setRespondingInteractionId(interaction.id);
+    void respondToPendingInteraction(interaction.id, { text: draft, status: "answered" })
+      .then((updated) => {
+        if (!updated) return;
+        setPendingResponseDrafts((current) => {
+          const { [interaction.id]: _removed, ...rest } = current;
+          return rest;
+        });
+      })
+      .finally(() => setRespondingInteractionId(undefined));
+  };
 
   useEffect(() => {
     if (!selectedDoc) return;
@@ -876,8 +919,64 @@ export const MemberRail = () => {
         <section className="mt-4 grid gap-3">
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold">Agent 活动</h2>
-            <span className="font-mono text-[11px] text-muted">{activityItems.length}</span>
+            <span className="font-mono text-[11px] text-muted">
+              {activityItems.length + requestedInteractions.length}
+            </span>
           </div>
+
+          {requestedInteractions.length > 0 ? (
+            <div className="grid gap-2">
+              {requestedInteractions.map((interaction) => {
+                const draft = pendingResponseDrafts[interaction.id] ?? "";
+                const isResponding = respondingInteractionId === interaction.id;
+
+                return (
+                  <article
+                    key={interaction.id}
+                    className="rounded-md border border-caution/35 bg-[#fff3d8] p-2.5 shadow-sketch"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <span className="rounded-md border border-caution/30 bg-panel px-2 py-0.5 font-mono text-[11px] text-caution">
+                          waiting user
+                        </span>
+                        <h3 className="mt-2 line-clamp-2 break-words text-sm font-semibold">
+                          {pendingSummary(interaction)}
+                        </h3>
+                      </div>
+                      <span className="shrink-0 rounded-md border border-caution/30 bg-panel px-2 py-0.5 font-mono text-[11px] text-caution">
+                        {interaction.kind}
+                      </span>
+                    </div>
+                    <textarea
+                      className="mt-2 min-h-16 w-full resize-none rounded-md border border-line bg-panel px-2.5 py-2 text-sm leading-5 text-ink placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-70"
+                      maxLength={360}
+                      placeholder="写入用户回应，保存为 Room message"
+                      value={draft}
+                      disabled={!canWriteRoomContext || isResponding}
+                      onChange={(event) =>
+                        setPendingResponseDrafts((current) => ({
+                          ...current,
+                          [interaction.id]: event.target.value,
+                        }))
+                      }
+                    />
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="font-mono text-[11px] text-muted">{interaction.id}</span>
+                      <button
+                        className="rounded-md bg-ink px-3 py-1.5 text-xs font-semibold text-white shadow-sketch hover:bg-linka disabled:cursor-not-allowed disabled:bg-muted"
+                        type="button"
+                        disabled={!canWriteRoomContext || draft.trim().length === 0 || isResponding}
+                        onClick={() => handlePendingResponse(interaction)}
+                      >
+                        {isResponding ? "提交中" : "提交回应"}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : null}
 
           {activityItems.length > 0 ? (
             <div className="grid gap-2">

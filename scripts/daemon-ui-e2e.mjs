@@ -20,6 +20,8 @@ const editedAnnouncementBody = "Edited daemon-backed announcement body.";
 const runPromptSuffix = `${process.pid}_${Date.now()}`;
 const linkaRunPrompt = `@LinkA run deterministic E2E trajectory export ${runPromptSuffix}`;
 const testRuntimeOutputMarker = "LinkA test runtime completed.";
+const pendingPrompt = `Need human decision ${runPromptSuffix}`;
+const pendingResponseText = `Human says continue ${runPromptSuffix}`;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -281,6 +283,23 @@ const waitForHttp = async (url, label, accept = (response) => response.ok) => {
   throw new Error(`${label} did not become ready at ${url}: ${lastError?.message ?? "unknown"}`);
 };
 
+const requestDaemonJson = async (daemonUrl, path, options = {}) => {
+  const response = await fetch(`${daemonUrl}/linka${path}`, {
+    method: options.method ?? "GET",
+    headers: {
+      Accept: "application/json",
+      ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`daemon request failed ${response.status} ${path}: ${await response.text()}`);
+  }
+
+  return response.json();
+};
+
 const pageEvaluate = async (page, expression, label) => {
   const evaluation = await page.send("Runtime.evaluate", {
     expression,
@@ -326,6 +345,8 @@ const getSnapshot = async (page) =>
         hasMentionPrompt: normalized.includes(${js(linkaRunPrompt)}),
         hasTestRuntimeOutput: normalized.includes(${js(testRuntimeOutputMarker)}) && normalized.includes(${js(runPromptSuffix)}),
         hasLiveActivityItem: activityButtons.length > 0 && normalized.includes(${js(testRuntimeOutputMarker)}),
+        hasPendingInteraction: normalized.includes(${js(pendingPrompt)}) && /waiting user/i.test(normalized),
+        hasPendingResponse: normalized.includes(${js(pendingResponseText)}),
         hasRunDetail: /Run detail/i.test(normalized) && /hrun_[A-Za-z0-9._-]+/.test(normalized),
         hasTrajectoryExportButton: [...document.querySelectorAll("button")].some((button) => (button.textContent ?? "").includes("导出 trajectory")),
         hasTrajectoryExportMetadata: normalized.includes("runId") && /hrun_[A-Za-z0-9._-]+/.test(normalized) && normalized.includes("snapshotId") && /hctx_[A-Za-z0-9._-]+/.test(normalized) && normalized.includes("version") && normalized.includes("linka-trajectory-jsonl.v1") && normalized.includes("format") && normalized.includes("linka-trajectory-jsonl"),
@@ -749,6 +770,47 @@ const run = async () => {
       "live run activity item visible",
       (snapshot) => snapshot.hasActivity && snapshot.hasLiveActivityItem,
     );
+
+    const roomsBody = await requestDaemonJson(daemonUrl, "/rooms");
+    const liveRoom = roomsBody.rooms.find((room) => room.displayName === roomName);
+    if (!liveRoom) throw new Error("created room not found through daemon API");
+    const sessionsBody = await requestDaemonJson(
+      daemonUrl,
+      `/rooms/${liveRoom.id}/harness-sessions`,
+    );
+    const session = sessionsBody.sessions[0];
+    if (!session) throw new Error("harness session not found for pending interaction smoke");
+    await requestDaemonJson(daemonUrl, `/rooms/${liveRoom.id}/pending-interactions`, {
+      method: "POST",
+      body: { sessionId: session.id, kind: "question", payload: { prompt: pendingPrompt } },
+    });
+    await runDomAction(
+      page,
+      "refresh pending interaction",
+      `clickText("nav button", ${js(roomName)});`,
+    );
+    await runDomAction(page, "reopen Activity tab", `clickText("button", "活动");`);
+    const pendingSnapshot = await waitFor(
+      page,
+      "pending interaction visible",
+      (snapshot) => snapshot.hasPendingInteraction,
+    );
+    await runDomAction(
+      page,
+      "respond to pending interaction",
+      `
+        const textarea = [...document.querySelectorAll("textarea")].find((input) => input.placeholder?.includes("用户回应"));
+        if (!textarea) throw new Error("missing pending interaction response textarea");
+        setValue(textarea, ${js(pendingResponseText)});
+        clickText("button", "提交回应");
+      `,
+    );
+    const pendingResponseSnapshot = await waitFor(
+      page,
+      "pending response visible in timeline",
+      (snapshot) => snapshot.hasPendingResponse,
+    );
+
     await runDomAction(page, "open live run detail", `clickText("button", "run completed");`);
     const runDetailSnapshot = await waitFor(
       page,

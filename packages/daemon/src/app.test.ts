@@ -1650,3 +1650,113 @@ test("harness run API returns uniform errors for bad ids and missing runs", asyn
     container.close();
   }
 });
+
+test("pending interaction API records and resolves user intervention with room message", async () => {
+  const container = createTestContainer();
+
+  try {
+    const app = createDaemonApp(container);
+    const roomResponse = await app.request("http://127.0.0.1/linka/rooms", {
+      method: "POST",
+      body: JSON.stringify({ displayName: "HIL Room" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const roomBody = (await roomResponse.json()) as { room: { id: string } };
+    const roomIdValue = roomBody.room.id;
+
+    const humanResponse = await app.request(`http://127.0.0.1/linka/rooms/${roomIdValue}/members`, {
+      method: "POST",
+      body: JSON.stringify({ kind: "human", role: "owner", displayName: "Alice" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const humanBody = (await humanResponse.json()) as { member: { id: string } };
+    const agentResponse = await app.request(`http://127.0.0.1/linka/rooms/${roomIdValue}/members`, {
+      method: "POST",
+      body: JSON.stringify({ kind: "agent", role: "admin", displayName: "LinkA" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const agentBody = (await agentResponse.json()) as { member: { id: string } };
+    const requestMessageResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${roomIdValue}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          senderMemberId: agentBody.member.id,
+          kind: "question",
+          text: "Should I continue?",
+        }),
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const requestMessageBody = (await requestMessageResponse.json()) as { message: { id: string } };
+    const sessionResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${roomIdValue}/harness-sessions`,
+      {
+        method: "POST",
+        body: JSON.stringify({ agentMemberId: agentBody.member.id }),
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const sessionBody = (await sessionResponse.json()) as { session: { id: string } };
+
+    const createInteractionResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${roomIdValue}/pending-interactions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          sessionId: sessionBody.session.id,
+          kind: "question",
+          requestMessageId: requestMessageBody.message.id,
+          payload: { prompt: "Need user decision" },
+        }),
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    const createInteractionBody = (await createInteractionResponse.json()) as {
+      interaction: { id: string; status: string; requestMessageId: string };
+    };
+    assert.equal(createInteractionResponse.status, 201);
+    assert.equal(createInteractionBody.interaction.status, "requested");
+    assert.equal(createInteractionBody.interaction.requestMessageId, requestMessageBody.message.id);
+
+    const listResponse = await app.request(
+      `http://127.0.0.1/linka/rooms/${roomIdValue}/pending-interactions`,
+    );
+    const listBody = (await listResponse.json()) as { interactions: readonly { id: string }[] };
+    assert.deepEqual(
+      listBody.interactions.map((interaction) => interaction.id),
+      [createInteractionBody.interaction.id],
+    );
+
+    const publishedEvents: PersistedDaemonEvent[] = [];
+    const subscription = container.eventBus.subscribe((event) => publishedEvents.push(event));
+    const respondResponse = await app.request(
+      `http://127.0.0.1/linka/pending-interactions/${createInteractionBody.interaction.id}/respond`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          senderMemberId: humanBody.member.id,
+          text: "Continue with option A.",
+          status: "answered",
+        }),
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+    subscription.unsubscribe();
+    const respondBody = (await respondResponse.json()) as {
+      interaction: { status: string; responseMessageId: string };
+      message: { id: string; kind: string; text: string; replyTo: { messageId: string } };
+    };
+
+    assert.equal(respondResponse.status, 200);
+    assert.equal(respondBody.interaction.status, "answered");
+    assert.equal(respondBody.interaction.responseMessageId, respondBody.message.id);
+    assert.equal(respondBody.message.kind, "intervention");
+    assert.equal(respondBody.message.text, "Continue with option A.");
+    assert.deepEqual(respondBody.message.replyTo, { messageId: requestMessageBody.message.id });
+    assert.equal(publishedEvents.length, 1);
+    assert.equal(publishedEvents[0]?.type, "message.created");
+  } finally {
+    container.close();
+  }
+});
