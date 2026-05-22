@@ -2,7 +2,6 @@ import type { Doc, HarnessRun, RoomMember, RuntimeEvent } from "@linka/shared";
 
 import { useConnectionStore } from "../../store/connectionStore.js";
 import { useRoomStore } from "../../store/roomStore.js";
-import { demoRoom } from "../../fixtures/demoRoom.js";
 import { Composer } from "../room/Composer.js";
 import { MemberRail } from "../room/MemberRail.js";
 import { RoomNav } from "../room/RoomNav.js";
@@ -14,6 +13,28 @@ const emptyMessages = [] as const;
 const emptyDocs = [] as const;
 const emptyRuns = [] as const;
 const emptyRuntimeEventsByRunId = {} as const;
+
+const EmptyRoomState = ({ source }: { readonly source: string }) => {
+  const isOffline = source === "offline";
+
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center border-b border-line px-4 py-8">
+      <section className="max-w-md rounded-md border border-line bg-panel/80 p-4 text-center shadow-sketch">
+        <p className="font-mono text-[11px] uppercase text-linka">
+          {isOffline ? "daemon offline" : "empty room list"}
+        </p>
+        <h2 className="mt-2 text-lg font-semibold">
+          {isOffline ? "等待 LinkA daemon" : "当前 daemon 没有 Room"}
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-muted">
+          {isOffline
+            ? "连接恢复后会重新载入真实 Room；不会自动注入 demo 数据。"
+            : "从左侧创建一个真实 Room 后，成员、消息、Docs 和 Activity 会从 daemon 载入。"}
+        </p>
+      </section>
+    </div>
+  );
+};
 
 const formatVersionTime = (timestamp: number): string =>
   new Intl.DateTimeFormat("zh-CN", {
@@ -160,9 +181,8 @@ export const RoomWorkspace = () => {
   const isLoading = useRoomStore((state) => state.isLoading);
   const source = useRoomStore((state) => state.source);
   const activeRoomId = useRoomStore((state) => state.activeRoomId);
-  const room = useRoomStore(
-    (state) =>
-      state.rooms.find((candidate) => candidate.id === state.activeRoomId) ?? demoRoom.room,
+  const room = useRoomStore((state) =>
+    state.rooms.find((candidate) => candidate.id === state.activeRoomId),
   );
   const members = useRoomStore((state) =>
     activeRoomId ? (state.membersByRoomId[activeRoomId] ?? emptyMembers) : emptyMembers,
@@ -180,6 +200,8 @@ export const RoomWorkspace = () => {
     (state) => state.runtimeEventsByRunId ?? emptyRuntimeEventsByRunId,
   );
   const offlineMessage = roomErrorMessage ?? connectionErrorMessage ?? "正在检查 /linka/health";
+  const hasActiveRoom = room !== undefined;
+  const showConnectionNotice = status !== "online" || source === "offline" || source === "demo";
 
   return (
     <div className="min-h-screen bg-paper px-2 py-2 text-ink sm:px-4 sm:py-4">
@@ -187,9 +209,9 @@ export const RoomWorkspace = () => {
         <RoomNav />
         <div className="flex min-w-0 flex-col lg:min-h-0">
           <ConnectionBar />
-          {status !== "online" || source === "fallback" ? (
+          {showConnectionNotice ? (
             <div className="border-b border-line bg-[#fff3d8] px-4 py-2 text-sm text-caution">
-              Daemon 未连接：{offlineMessage}。Demo room 仍可浏览。
+              Daemon 未连接：{offlineMessage}。不会自动载入 demo Room。
             </div>
           ) : null}
           <div className="grid min-h-0 flex-1 lg:grid-rows-[minmax(0,1fr)_minmax(270px,34vh)]">
@@ -206,11 +228,15 @@ export const RoomWorkspace = () => {
                   <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
                     <div className="min-w-0">
                       <h1 className="truncate text-xl font-semibold leading-tight sm:text-2xl">
-                        {room.displayName}
+                        {room?.displayName ?? "创建或选择 Room"}
                       </h1>
-                      {room.topic ? (
+                      {room?.topic ? (
                         <p className="mt-1 max-w-3xl text-sm leading-5 text-muted">{room.topic}</p>
-                      ) : null}
+                      ) : (
+                        <p className="mt-1 max-w-3xl text-sm leading-5 text-muted">
+                          这里不会自动 seed demo 数据；请选择真实 Room 或新建 Room。
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-1.5 text-xs text-muted">
                       <span className="rounded-md border border-linka/25 bg-[#f0ecff] px-2 py-1 font-semibold text-linka">
@@ -231,7 +257,11 @@ export const RoomWorkspace = () => {
                     </div>
                   </div>
                 </div>
-                <Timeline messages={messages} members={members} />
+                {hasActiveRoom ? (
+                  <Timeline messages={messages} members={members} />
+                ) : (
+                  <EmptyRoomState source={source} />
+                )}
                 <Composer source={source} />
               </main>
               <MemberRail />

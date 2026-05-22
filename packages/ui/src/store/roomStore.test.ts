@@ -81,11 +81,11 @@ const withMockFetch = async (
   }
 };
 
-let fallbackFetchCalls = 0;
+let offlineFetchCalls = 0;
 
 await withMockFetch(
   async () => {
-    fallbackFetchCalls += 1;
+    offlineFetchCalls += 1;
     throw new Error("daemon offline");
   },
   async () => {
@@ -93,40 +93,63 @@ await withMockFetch(
     await useRoomStore.getState().initializeRoomWorkspace();
 
     let state = useRoomStore.getState();
-    assert.equal(state.source, "fallback");
-    assert.equal(state.activeRoomId, demoRoom.room.id);
-    assert.equal(state.rooms[0]?.id, demoRoom.room.id);
-    assert.equal(state.membersByRoomId[demoRoom.room.id]?.length, demoRoom.members.length);
-    assert.equal(state.messagesByRoomId[demoRoom.room.id]?.length, demoRoom.messages.length);
-    assert.equal(state.docsByRoomId[demoRoom.room.id]?.length, demoRoom.docs.length);
-    assert.deepEqual(state.harnessRunsByRoomId[demoRoom.room.id], []);
-    assert.deepEqual(state.harnessSessionsByRoomId[demoRoom.room.id], []);
+    assert.equal(state.source, "offline");
+    assert.equal(state.activeRoomId, undefined);
+    assert.deepEqual(state.rooms, []);
+    assert.deepEqual(state.membersByRoomId, {});
+    assert.deepEqual(state.messagesByRoomId, {});
+    assert.deepEqual(state.docsByRoomId, {});
+    assert.deepEqual(state.harnessRunsByRoomId, {});
+    assert.deepEqual(state.harnessSessionsByRoomId, {});
     assert.deepEqual(state.runtimeEventsByRunId, {});
-    assert.equal(state.filesByRoomId[demoRoom.room.id]?.length, demoRoom.files.length);
-    assert.equal(
-      state.announcementsByRoomId[demoRoom.room.id]?.length,
-      demoRoom.announcements.length,
-    );
-    assert.equal(state.pinnedItemsByRoomId[demoRoom.room.id]?.length, demoRoom.pinnedItems.length);
+    assert.deepEqual(state.filesByRoomId, {});
+    assert.deepEqual(state.announcementsByRoomId, {});
+    assert.deepEqual(state.pinnedItemsByRoomId, {});
 
     await useRoomStore.getState().sendComposerMessage("本地补充一条判断");
     state = useRoomStore.getState();
 
-    assert.equal(state.source, "fallback");
-    assert.equal(state.messagesByRoomId[demoRoom.room.id]?.at(-1)?.text, "本地补充一条判断");
+    assert.equal(state.source, "offline");
+    assert.deepEqual(state.messagesByRoomId, {});
+    assert.match(state.errorMessage ?? "", /running LinkA daemon/);
 
-    const callsBeforeCreateDoc = fallbackFetchCalls;
+    const callsBeforeCreateDoc = offlineFetchCalls;
     await useRoomStore.getState().createActiveRoomDoc({ title: "本地文档" });
     state = useRoomStore.getState();
 
-    assert.equal(fallbackFetchCalls, callsBeforeCreateDoc);
+    assert.equal(offlineFetchCalls, callsBeforeCreateDoc);
     assert.equal(state.isCreatingDoc, false);
     assert.match(state.errorMessage ?? "", /API-backed room/);
-    assert.equal(state.docsByRoomId[demoRoom.room.id]?.length, demoRoom.docs.length);
+    assert.deepEqual(state.docsByRoomId, {});
   },
 );
 
-console.log("room store fallback: ok");
+console.log("room store offline path: ok");
+
+const emptyRoomRequests: CapturedRequest[] = [];
+await withMockFetch(
+  async (input, init = {}) => {
+    emptyRoomRequests.push({ input: String(input), init });
+    return makeJsonResponse({ ok: true, rooms: [] });
+  },
+  async () => {
+    resetStore();
+    await useRoomStore.getState().initializeRoomWorkspace();
+    const state = useRoomStore.getState();
+
+    assert.equal(state.source, "api");
+    assert.equal(state.activeRoomId, undefined);
+    assert.deepEqual(state.rooms, []);
+    assert.deepEqual(state.messagesByRoomId, {});
+    assert.equal(state.errorMessage, undefined);
+  },
+);
+assert.deepEqual(
+  emptyRoomRequests.map((request) => `${request.init.method ?? "GET"} ${request.input}`),
+  ["GET /linka/rooms"],
+);
+
+console.log("room store empty daemon path: ok");
 
 const apiRoom = demoRoom.room;
 const apiMembers = demoRoom.members;
@@ -245,13 +268,7 @@ const composerApiMessage = {
 
 const requests: CapturedRequest[] = [];
 const responses = [
-  makeJsonResponse({ ok: true, rooms: [] }),
-  makeJsonResponse({ ok: true, room: apiRoom }, 201),
-  makeJsonResponse({ ok: true, member: apiMembers[0] }, 201),
-  makeJsonResponse({ ok: true, member: apiMembers[1] }, 201),
-  makeJsonResponse({ ok: true, member: apiMembers[2] }, 201),
-  makeJsonResponse({ ok: true, member: apiMembers[3] }, 201),
-  makeJsonResponse({ ok: true, message: initialApiMessage }, 201),
+  makeJsonResponse({ ok: true, rooms: [apiRoom] }),
   makeJsonResponse({ ok: true, members: apiMembers }),
   makeJsonResponse({ ok: true, messages: [initialApiMessage] }),
   makeJsonResponse({ ok: true, docs: apiDocs }),
@@ -301,12 +318,6 @@ await withMockFetch(
       requests.map((request) => `${request.init.method ?? "GET"} ${request.input}`),
       [
         "GET /linka/rooms",
-        "POST /linka/rooms",
-        `POST /linka/rooms/${apiRoom.id}/members`,
-        `POST /linka/rooms/${apiRoom.id}/members`,
-        `POST /linka/rooms/${apiRoom.id}/members`,
-        `POST /linka/rooms/${apiRoom.id}/members`,
-        `POST /linka/rooms/${apiRoom.id}/messages`,
         `GET /linka/rooms/${apiRoom.id}/members`,
         `GET /linka/rooms/${apiRoom.id}/messages?afterSequence=0&limit=500`,
         `GET /linka/rooms/${apiRoom.id}/docs`,
@@ -316,15 +327,6 @@ await withMockFetch(
         `GET /linka/harness-runs/${apiRun.id}/events`,
       ],
     );
-
-    const createBody = JSON.parse(String(requests[1]?.init.body));
-    assert.equal(createBody.displayName, demoRoom.room.displayName);
-    assert.equal(createBody.topic, demoRoom.room.topic);
-
-    const firstMessageBody = JSON.parse(String(requests[6]?.init.body));
-    assert.equal(firstMessageBody.senderMemberId, apiMembers[0].id);
-    assert.equal(firstMessageBody.kind, "instruction");
-    assert.equal(firstMessageBody.mentions[0].memberId, apiMembers[1].id);
 
     await useRoomStore.getState().sendComposerMessage("API composer message");
     state = useRoomStore.getState();
@@ -336,7 +338,7 @@ await withMockFetch(
     assert.deepEqual(state.harnessSessionsByRoomId[apiRoom.id], [apiSession]);
     assert.equal(state.isSending, false);
 
-    const composerPost = requests[14];
+    const composerPost = requests[8];
     assert.equal(composerPost?.input, `/linka/rooms/${apiRoom.id}/messages`);
     assert.equal(composerPost?.init.method, "POST");
     assert.deepEqual(JSON.parse(String(composerPost?.init.body)), {
@@ -346,7 +348,7 @@ await withMockFetch(
     });
 
     assert.deepEqual(
-      requests.slice(14).map((request) => `${request.init.method ?? "GET"} ${request.input}`),
+      requests.slice(8).map((request) => `${request.init.method ?? "GET"} ${request.input}`),
       [
         `POST /linka/rooms/${apiRoom.id}/messages`,
         `GET /linka/rooms/${apiRoom.id}/members`,
@@ -368,7 +370,7 @@ await withMockFetch(
     assert.equal(state.errorMessage, undefined);
     assert.deepEqual(state.docsByRoomId[apiRoom.id], [...apiDocs, createdApiDoc]);
 
-    const docPost = requests[22];
+    const docPost = requests[16];
     assert.equal(docPost?.input, `/linka/rooms/${apiRoom.id}/docs`);
     assert.equal(docPost?.init.method, "POST");
     assert.deepEqual(JSON.parse(String(docPost?.init.body)), {

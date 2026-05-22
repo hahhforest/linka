@@ -1,7 +1,5 @@
 import { create } from "zustand";
 import {
-  roomMessageId,
-  unixMs,
   type Announcement,
   type AnnouncementId,
   type Doc,
@@ -16,12 +14,10 @@ import {
   type RoomFile,
   type RoomId,
   type RoomMember,
-  type RoomMention,
   type RoomMessage,
   type RuntimeEvent,
 } from "@linka/shared";
 
-import { demoRoom } from "../fixtures/demoRoom.js";
 import { parseComposerMentions } from "./composerMentions.js";
 import type { RealtimeRoomEvent } from "../services/realtime/index.js";
 import {
@@ -48,21 +44,7 @@ import {
   sendRoomMessage,
 } from "../services/roomsService.js";
 
-export type RoomDataSource = "checking" | "api" | "fallback";
-
-export interface RoomWorkspaceSnapshot {
-  readonly room: Room;
-  readonly members: readonly RoomMember[];
-  readonly messages: readonly RoomMessage[];
-  readonly docs: readonly Doc[];
-  readonly harnessRuns: readonly HarnessRun[];
-  readonly harnessSessions: readonly HarnessSession[];
-  readonly runtimeEventsByRunId: Readonly<Record<string, readonly RuntimeEvent[]>>;
-  readonly files: readonly RoomFile[];
-  readonly announcements: readonly Announcement[];
-  readonly pinnedItems: readonly PinnedItem[];
-  readonly source: RoomDataSource;
-}
+export type RoomDataSource = "checking" | "api" | "offline" | "demo";
 
 export interface DocDetailSnapshot {
   readonly revisions: readonly DocRevision[];
@@ -128,68 +110,27 @@ export interface RoomState {
   readonly deleteActiveRoomAnnouncement: (announcementId: AnnouncementId) => Promise<boolean>;
 }
 
-const fallbackRooms = [demoRoom.room];
-const fallbackMembersByRoomId = { [demoRoom.room.id]: demoRoom.members };
-const fallbackMessagesByRoomId = { [demoRoom.room.id]: demoRoom.messages };
-const fallbackDocsByRoomId = { [demoRoom.room.id]: demoRoom.docs };
-const fallbackHarnessRunsByRoomId = { [demoRoom.room.id]: [] };
-const fallbackHarnessSessionsByRoomId = { [demoRoom.room.id]: [] };
-const fallbackFilesByRoomId = { [demoRoom.room.id]: demoRoom.files };
-const fallbackAnnouncementsByRoomId = { [demoRoom.room.id]: demoRoom.announcements };
-const fallbackPinnedItemsByRoomId = { [demoRoom.room.id]: demoRoom.pinnedItems };
-
-const getActiveSnapshot = (
-  state: Pick<
-    RoomState,
-    | "rooms"
-    | "activeRoomId"
-    | "membersByRoomId"
-    | "messagesByRoomId"
-    | "docsByRoomId"
-    | "harnessRunsByRoomId"
-    | "harnessSessionsByRoomId"
-    | "runtimeEventsByRunId"
-    | "filesByRoomId"
-    | "announcementsByRoomId"
-    | "pinnedItemsByRoomId"
-    | "source"
-  >,
-): RoomWorkspaceSnapshot => {
-  const room =
-    state.rooms.find((candidate) => candidate.id === state.activeRoomId) ?? demoRoom.room;
-
-  return {
-    room,
-    members: state.membersByRoomId[room.id] ?? [],
-    messages: state.messagesByRoomId[room.id] ?? [],
-    docs: state.docsByRoomId[room.id] ?? [],
-    harnessRuns: state.harnessRunsByRoomId[room.id] ?? [],
-    harnessSessions: state.harnessSessionsByRoomId[room.id] ?? [],
-    runtimeEventsByRunId: state.runtimeEventsByRunId,
-    files: state.filesByRoomId[room.id] ?? [],
-    announcements: state.announcementsByRoomId[room.id] ?? [],
-    pinnedItems: state.pinnedItemsByRoomId[room.id] ?? [],
-    source: state.source,
-  };
-};
-
-const loadFallback = (set: (state: Partial<RoomState>) => void, error?: unknown): void => {
+const resetWorkspaceState = (
+  set: (state: Partial<RoomState>) => void,
+  source: RoomDataSource,
+  error?: unknown,
+): void => {
   const errorMessage = error instanceof Error ? error.message : undefined;
 
   set({
-    rooms: fallbackRooms,
-    activeRoomId: demoRoom.room.id,
-    membersByRoomId: fallbackMembersByRoomId,
-    messagesByRoomId: fallbackMessagesByRoomId,
-    docsByRoomId: fallbackDocsByRoomId,
+    rooms: [],
+    activeRoomId: undefined,
+    membersByRoomId: {},
+    messagesByRoomId: {},
+    docsByRoomId: {},
     docDetailsByDocId: {},
-    harnessRunsByRoomId: fallbackHarnessRunsByRoomId,
-    harnessSessionsByRoomId: fallbackHarnessSessionsByRoomId,
+    harnessRunsByRoomId: {},
+    harnessSessionsByRoomId: {},
     runtimeEventsByRunId: {},
-    filesByRoomId: fallbackFilesByRoomId,
-    announcementsByRoomId: fallbackAnnouncementsByRoomId,
-    pinnedItemsByRoomId: fallbackPinnedItemsByRoomId,
-    source: "fallback",
+    filesByRoomId: {},
+    announcementsByRoomId: {},
+    pinnedItemsByRoomId: {},
+    source,
     isLoading: false,
     isCreatingRoom: false,
     isSending: false,
@@ -197,48 +138,6 @@ const loadFallback = (set: (state: Partial<RoomState>) => void, error?: unknown)
     errorMessage,
     appliedRoomEventKeys: [],
   });
-};
-
-const createDemoLikeApiRoom = async (): Promise<Room> => {
-  const room = await createRoom({
-    displayName: demoRoom.room.displayName,
-    topic: demoRoom.room.topic,
-  });
-
-  const human = await addRoomMember(room.id, {
-    participantId: demoRoom.members[0]?.participantId,
-    kind: "human",
-    role: "owner",
-    displayName: "用户",
-  });
-  const linka = await addRoomMember(room.id, {
-    participantId: demoRoom.members[1]?.participantId,
-    kind: "agent",
-    role: "admin",
-    displayName: "LinkA",
-  });
-
-  await addRoomMember(room.id, {
-    participantId: demoRoom.members[2]?.participantId,
-    kind: "agent",
-    role: "member",
-    displayName: "资料 Agent",
-  });
-  await addRoomMember(room.id, {
-    participantId: demoRoom.members[3]?.participantId,
-    kind: "agent",
-    role: "member",
-    displayName: "核验 Agent",
-  });
-
-  await sendRoomMessage(room.id, {
-    senderMemberId: human.id,
-    kind: "instruction",
-    text: demoRoom.messages.find((message) => message.id === "rmsg_user_initial_request")?.text,
-    mentions: [{ memberId: linka.id, displayText: "@LinkA" }],
-  });
-
-  return room;
 };
 
 const loadApiRoomData = async (
@@ -288,32 +187,6 @@ const findLinkAAgent = (members: readonly RoomMember[]): RoomMember | undefined 
       member.status === "active" &&
       member.displayName.toLocaleLowerCase("zh-CN").includes("linka"),
   ) ?? members.find((member) => member.kind === "agent" && member.status === "active");
-
-const makeLocalFallbackMessage = (
-  room: Room,
-  members: readonly RoomMember[],
-  messages: readonly RoomMessage[],
-  text: string,
-  mentions: readonly RoomMention[],
-): RoomMessage => {
-  const sender = findHumanSender(members);
-  const nextSequence = Math.max(0, ...messages.map((message) => message.sequence)) + 1;
-
-  return {
-    id: roomMessageId(`rmsg_local_${Date.now()}`),
-    roomId: room.id,
-    sequence: nextSequence,
-    sender: sender
-      ? { kind: "member", memberId: sender.id }
-      : { kind: "system", label: "Local Draft" },
-    kind: "text",
-    createdAt: unixMs(Date.now()),
-    text,
-    mentions: mentions.length > 0 ? mentions : undefined,
-    visibility: room.defaultVisibility,
-    notification: { level: "silent" },
-  };
-};
 
 const mergeRoomDoc = (docs: readonly Doc[], doc: Doc): readonly Doc[] =>
   docs.some((candidate) => candidate.id === doc.id)
@@ -385,14 +258,19 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     set({ source: "checking", isLoading: true, errorMessage: undefined });
 
     try {
-      let rooms = await listRooms();
+      const rooms = await listRooms();
 
       if (rooms.length === 0) {
-        const room = await createDemoLikeApiRoom();
-        rooms = [room];
+        resetWorkspaceState(set, "api");
+        return;
       }
 
-      const activeRoom = rooms[0] ?? demoRoom.room;
+      const activeRoom = rooms[0];
+      if (!activeRoom) {
+        resetWorkspaceState(set, "api");
+        return;
+      }
+
       const {
         members,
         messages,
@@ -422,7 +300,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         appliedRoomEventKeys: [],
       });
     } catch (error) {
-      loadFallback(set, error);
+      resetWorkspaceState(set, "offline", error);
     }
   },
   createRoomWithDefaults: async (input) => {
@@ -673,9 +551,24 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     }
 
     const state = get();
-    const snapshot = getActiveSnapshot(state);
-    const sender = findHumanSender(snapshot.members);
-    const mentions = parseComposerMentions(trimmed, snapshot.members);
+    const room = state.rooms.find((candidate) => candidate.id === state.activeRoomId);
+
+    if (state.source !== "api") {
+      set({
+        isSending: false,
+        errorMessage: "Sending messages requires a running LinkA daemon",
+      });
+      return;
+    }
+
+    if (!room) {
+      set({ isSending: false, errorMessage: "Create or select a Room before sending" });
+      return;
+    }
+
+    const members = state.membersByRoomId[room.id] ?? [];
+    const sender = findHumanSender(members);
+    const mentions = parseComposerMentions(trimmed, members);
 
     if (hasMentionMarker(trimmed) && mentions.length === 0) {
       set({
@@ -685,29 +578,15 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       return;
     }
 
-    if (snapshot.source !== "api" || !sender) {
-      const message = makeLocalFallbackMessage(
-        snapshot.room,
-        snapshot.members,
-        snapshot.messages,
-        trimmed,
-        mentions,
-      );
-      set((current) => ({
-        messagesByRoomId: {
-          ...current.messagesByRoomId,
-          [snapshot.room.id]: [...(current.messagesByRoomId[snapshot.room.id] ?? []), message],
-        },
-        source: "fallback",
-        errorMessage: undefined,
-      }));
+    if (!sender) {
+      set({ isSending: false, errorMessage: "No human room member available" });
       return;
     }
 
     set({ isSending: true, errorMessage: undefined });
 
     try {
-      await sendRoomMessage(snapshot.room.id, {
+      await sendRoomMessage(room.id, {
         senderMemberId: sender.id,
         kind: "text",
         text: trimmed,
@@ -721,42 +600,27 @@ export const useRoomStore = create<RoomState>((set, get) => ({
         harnessRuns,
         harnessSessions,
         runtimeEventsByRunId,
-      } = await loadApiRoomData(snapshot.room);
+      } = await loadApiRoomData(room);
       set((current) => ({
-        membersByRoomId: { ...current.membersByRoomId, [snapshot.room.id]: members },
-        messagesByRoomId: { ...current.messagesByRoomId, [snapshot.room.id]: messages },
-        docsByRoomId: { ...current.docsByRoomId, [snapshot.room.id]: docs },
+        membersByRoomId: { ...current.membersByRoomId, [room.id]: members },
+        messagesByRoomId: { ...current.messagesByRoomId, [room.id]: messages },
+        docsByRoomId: { ...current.docsByRoomId, [room.id]: docs },
         announcementsByRoomId: {
           ...current.announcementsByRoomId,
-          [snapshot.room.id]: announcements,
+          [room.id]: announcements,
         },
-        harnessRunsByRoomId: { ...current.harnessRunsByRoomId, [snapshot.room.id]: harnessRuns },
+        harnessRunsByRoomId: { ...current.harnessRunsByRoomId, [room.id]: harnessRuns },
         harnessSessionsByRoomId: {
           ...current.harnessSessionsByRoomId,
-          [snapshot.room.id]: harnessSessions,
+          [room.id]: harnessSessions,
         },
         runtimeEventsByRunId: { ...current.runtimeEventsByRunId, ...runtimeEventsByRunId },
         isSending: false,
         errorMessage: undefined,
       }));
     } catch (error) {
-      const message = makeLocalFallbackMessage(
-        snapshot.room,
-        snapshot.members,
-        snapshot.messages,
-        trimmed,
-        mentions,
-      );
       const errorMessage = error instanceof Error ? error.message : "Unable to send room message";
-      set((current) => ({
-        messagesByRoomId: {
-          ...current.messagesByRoomId,
-          [snapshot.room.id]: [...(current.messagesByRoomId[snapshot.room.id] ?? []), message],
-        },
-        source: "fallback",
-        isSending: false,
-        errorMessage,
-      }));
+      set({ isSending: false, errorMessage });
     }
   },
   createActiveRoomDoc: async (input) => {

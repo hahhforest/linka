@@ -15,6 +15,13 @@ const formatRoomTime = (updatedAt: number): string =>
 
 const statusDot = (source: string): string => (source === "api" ? "bg-success" : "bg-caution");
 
+const sourceLabel = (source: string): string => {
+  if (source === "api") return "daemon api";
+  if (source === "offline") return "offline";
+  if (source === "checking") return "checking";
+  return "demo";
+};
+
 export const RoomNav = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [displayName, setDisplayName] = useState("证据核验 Room");
@@ -111,7 +118,7 @@ export const RoomNav = () => {
             </p>
             {source !== "api" ? (
               <p className="rounded-md border border-caution/30 bg-[#fff3d8] px-2.5 py-2 text-xs leading-5 text-caution">
-                需要先启动 LinkA daemon，离线 demo 不会写入真实 Room。
+                需要先启动 LinkA daemon；不会自动写入 demo Room。
               </p>
             ) : null}
             {errorMessage ? (
@@ -155,7 +162,7 @@ export const RoomNav = () => {
         <h3 className="text-sm font-semibold">我的 Room</h3>
         <span className="flex items-center gap-1 font-mono text-[11px] text-muted">
           <span className={`h-2 w-2 rounded-full ${statusDot(source)}`} />
-          {source === "api" ? "daemon" : "demo"}
+          {sourceLabel(source)}
         </span>
       </div>
 
@@ -163,6 +170,11 @@ export const RoomNav = () => {
         className="linka-scrollbar mt-2 grid min-h-0 gap-2 overflow-y-auto pr-1"
         aria-label="Room navigation"
       >
+        {rooms.length === 0 ? (
+          <div className="rounded-md border border-dashed border-line bg-panel/58 px-3 py-4 text-sm leading-6 text-muted">
+            {source === "api" ? "当前 daemon 还没有 Room。" : "连接 daemon 后载入真实 Room。"}
+          </div>
+        ) : null}
         {rooms.map((room) => {
           const isActive = room.id === activeRoomId;
 

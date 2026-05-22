@@ -17,7 +17,6 @@ const appendMentionText = (draft: string, displayName: string): string => {
 
 export const Composer = ({ source }: ComposerProps) => {
   const [draft, setDraft] = useState("");
-  const [localNote, setLocalNote] = useState<string | undefined>();
   const activeRoomId = useRoomStore((state) => state.activeRoomId);
   const members = useRoomStore((state) =>
     activeRoomId ? (state.membersByRoomId[activeRoomId] ?? emptyMembers) : emptyMembers,
@@ -29,15 +28,11 @@ export const Composer = ({ source }: ComposerProps) => {
     () => members.filter((member) => member.kind === "agent" && member.status === "active"),
     [members],
   );
-  const submitLabel = source === "api" ? "发送" : "本地暂存";
+  const canSend = source === "api" && activeRoomId !== undefined;
+  const submitLabel = canSend ? "发送" : "选择 Room";
 
   return (
     <section className="border-t border-line bg-panel/95 px-3 py-3 sm:px-5">
-      {localNote ? (
-        <p className="mb-2 rounded-md border border-line bg-[#fbf7ed] px-3 py-2 text-xs text-muted">
-          本地草稿：{localNote}
-        </p>
-      ) : null}
       {errorMessage ? (
         <p className="mb-2 rounded-md border border-danger/30 bg-[#fae8e2] px-3 py-2 text-xs text-danger">
           {errorMessage}
@@ -66,14 +61,8 @@ export const Composer = ({ source }: ComposerProps) => {
         onSubmit={(event) => {
           event.preventDefault();
           const nextDraft = draft.trim();
-          if (nextDraft.length === 0 || isSending) {
+          if (!canSend || nextDraft.length === 0 || isSending) {
             return;
-          }
-
-          if (source !== "api") {
-            setLocalNote(nextDraft);
-          } else {
-            setLocalNote(undefined);
           }
 
           setDraft("");
@@ -98,7 +87,8 @@ export const Composer = ({ source }: ComposerProps) => {
           <button
             className="rounded-md bg-linka px-3 py-2 text-sm font-semibold text-white shadow-sketch hover:bg-[#6750ca] disabled:cursor-not-allowed disabled:bg-muted"
             type="submit"
-            disabled={draft.trim().length === 0 || isSending}
+            disabled={!canSend || draft.trim().length === 0 || isSending}
+            title={!canSend ? "需要先创建或选择真实 Room" : undefined}
           >
             {isSending ? "发送中" : submitLabel}
           </button>

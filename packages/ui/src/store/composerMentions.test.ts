@@ -50,7 +50,7 @@ const makeJsonResponse = (body: unknown, status = 200): Response =>
     headers: { "Content-Type": "application/json" },
   });
 
-const resetRoomStore = (source: "api" | "fallback"): void => {
+const resetRoomStore = (source: "api" | "offline"): void => {
   useRoomStore.setState({
     rooms: [demoRoom.room],
     activeRoomId: demoRoom.room.id,
@@ -85,20 +85,23 @@ const withMockFetch = async (
   }
 };
 
-resetRoomStore("fallback");
-await useRoomStore.getState().sendComposerMessage("@LinkA 本地 fallback @LinkA");
-const fallbackMessage = useRoomStore.getState().messagesByRoomId[demoRoom.room.id]?.at(-1);
-assert.equal(fallbackMessage?.text, "@LinkA 本地 fallback @LinkA");
-assert.deepEqual(fallbackMessage?.mentions, [linkaMention]);
-
-resetRoomStore("fallback");
-await useRoomStore.getState().sendComposerMessage("@Nobody 本地 fallback");
-const fallbackStateAfterBadMention = useRoomStore.getState();
+resetRoomStore("offline");
+await useRoomStore.getState().sendComposerMessage("@LinkA 离线路径不应写 timeline");
+const offlineStateAfterSend = useRoomStore.getState();
 assert.equal(
-  fallbackStateAfterBadMention.messagesByRoomId[demoRoom.room.id]?.length,
+  offlineStateAfterSend.messagesByRoomId[demoRoom.room.id]?.length,
   demoRoom.messages.length,
 );
-assert.match(fallbackStateAfterBadMention.errorMessage ?? "", /未识别 @ 成员/);
+assert.match(offlineStateAfterSend.errorMessage ?? "", /running LinkA daemon/);
+
+resetRoomStore("offline");
+await useRoomStore.getState().sendComposerMessage("@Nobody 离线路径");
+const offlineStateAfterBadMention = useRoomStore.getState();
+assert.equal(
+  offlineStateAfterBadMention.messagesByRoomId[demoRoom.room.id]?.length,
+  demoRoom.messages.length,
+);
+assert.match(offlineStateAfterBadMention.errorMessage ?? "", /running LinkA daemon/);
 
 const requests: CapturedRequest[] = [];
 const apiComposerMessage = {

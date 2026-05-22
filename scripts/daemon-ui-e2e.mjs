@@ -314,6 +314,7 @@ const getSnapshot = async (page) =>
         hasDaemonOnline: /\\/linka\\/health\\s*·\\s*online/i.test(normalized),
         hasDaemonSource: /\\bdaemon\\b/i.test(normalized),
         hasSseOpen: /sse\\s+open/i.test(normalized),
+        hasSseIdle: /sse\\s+idle/i.test(normalized),
         hasRoom: normalized.includes(${js(roomName)}),
         hasSelectedRoom: Boolean([...document.querySelectorAll("nav button[aria-current='page']")].some((button) => button.textContent?.includes(${js(roomName)}))) && Boolean([...document.querySelectorAll("h1")].some((heading) => heading.textContent?.includes(${js(roomName)}))),
         hasDocDetail: /Doc detail/i.test(normalized) && normalized.includes(${js(docTitle)}),
@@ -609,7 +610,7 @@ const run = async () => {
         snapshot.hasRootContent &&
         snapshot.hasDaemonOnline &&
         snapshot.hasDaemonSource &&
-        snapshot.hasSseOpen,
+        (snapshot.hasSseOpen || snapshot.hasSseIdle),
     );
 
     await runDomAction(page, "open create room modal", `clickText("button", "新建 Room");`);
@@ -628,7 +629,7 @@ const run = async () => {
     const roomSnapshot = await waitFor(
       page,
       "created room selected",
-      (snapshot) => snapshot.hasSelectedRoom,
+      (snapshot) => snapshot.hasSelectedRoom && snapshot.hasSseOpen,
     );
 
     await runDomAction(page, "open Docs tab", `clickText("button", "Docs");`);
@@ -735,7 +736,11 @@ const run = async () => {
       (snapshot) => snapshot.hasTestRuntimeOutput,
     );
 
-    await runDomAction(page, "refresh live run room data", `clickText("nav button", ${js(roomName)});`);
+    await runDomAction(
+      page,
+      "refresh live run room data",
+      `clickText("nav button", ${js(roomName)});`,
+    );
     await waitFor(page, "live run room still selected", (snapshot) => snapshot.hasSelectedRoom);
 
     await runDomAction(page, "open Activity tab", `clickText("button", "活动");`);

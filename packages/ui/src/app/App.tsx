@@ -21,6 +21,12 @@ export const App = () => {
   }, [initializeRoomWorkspace]);
 
   useEffect(() => {
+    if (daemonStatus === "online" && (roomSource === "offline" || roomSource === "demo")) {
+      void initializeRoomWorkspace();
+    }
+  }, [daemonStatus, initializeRoomWorkspace, roomSource]);
+
+  useEffect(() => {
     void checkDaemonConnection();
     const intervalId = window.setInterval(() => {
       void checkDaemonConnection();

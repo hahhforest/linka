@@ -236,6 +236,8 @@ export const MemberRail = () => {
     ? (roomRuntimeEventsByRunId[selectedActivity.runId] ?? selectedActivity.rawEvents)
     : (selectedActivity?.rawEvents ?? []);
   const trajectoryExportPreview = trajectoryExport ? truncatePreview(trajectoryExport.text) : "";
+  const hasActiveRoom = activeRoomId !== undefined;
+  const canWriteRoomContext = isApiBacked && hasActiveRoom;
 
   useEffect(() => {
     if (!selectedDoc) return;
@@ -454,7 +456,11 @@ export const MemberRail = () => {
             onSubmit={(event) => {
               event.preventDefault();
 
-              if (!isApiBacked || trimmedAnnouncementBody.length === 0 || isSavingAnnouncement) {
+              if (
+                !canWriteRoomContext ||
+                trimmedAnnouncementBody.length === 0 ||
+                isSavingAnnouncement
+              ) {
                 return;
               }
 
@@ -487,15 +493,17 @@ export const MemberRail = () => {
               placeholder="公告标题"
               type="text"
               value={announcementTitle}
-              disabled={!isApiBacked || isSavingAnnouncement}
+              disabled={!canWriteRoomContext || isSavingAnnouncement}
               onChange={(event) => setAnnouncementTitle(event.target.value)}
             />
             <textarea
               className="min-h-20 resize-none rounded-md border border-line bg-[#fbf7ed] px-2.5 py-2 text-sm leading-5 text-ink placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-70"
               maxLength={360}
-              placeholder={isApiBacked ? "公告内容" : "需要连接 LinkA daemon 后才能写入公告"}
+              placeholder={
+                canWriteRoomContext ? "公告内容" : "需要选择 API-backed Room 后才能写入公告"
+              }
               value={announcementBody}
-              disabled={!isApiBacked || isSavingAnnouncement}
+              disabled={!canWriteRoomContext || isSavingAnnouncement}
               onChange={(event) => setAnnouncementBody(event.target.value)}
             />
             <div className="flex gap-2">
@@ -503,7 +511,9 @@ export const MemberRail = () => {
                 className="flex-1 rounded-md bg-ink px-3 py-1.5 text-sm font-semibold text-white shadow-sketch hover:bg-linka disabled:cursor-not-allowed disabled:bg-muted"
                 type="submit"
                 disabled={
-                  !isApiBacked || trimmedAnnouncementBody.length === 0 || isSavingAnnouncement
+                  !canWriteRoomContext ||
+                  trimmedAnnouncementBody.length === 0 ||
+                  isSavingAnnouncement
                 }
               >
                 {isSavingAnnouncement ? "保存中" : editingAnnouncementId ? "保存公告" : "创建公告"}
@@ -538,7 +548,7 @@ export const MemberRail = () => {
                     <button
                       className="rounded-md border border-line bg-panel px-2 py-0.5 text-[11px] text-muted hover:border-linka hover:text-linka disabled:cursor-not-allowed disabled:opacity-70"
                       type="button"
-                      disabled={!isApiBacked || isSavingAnnouncement}
+                      disabled={!canWriteRoomContext || isSavingAnnouncement}
                       onClick={() => setEditingAnnouncementId(announcement.id)}
                     >
                       编辑
@@ -546,9 +556,9 @@ export const MemberRail = () => {
                     <button
                       className="rounded-md border border-danger/30 bg-panel px-2 py-0.5 text-[11px] text-danger disabled:cursor-not-allowed disabled:opacity-70"
                       type="button"
-                      disabled={!isApiBacked || deletingAnnouncementId === announcement.id}
+                      disabled={!canWriteRoomContext || deletingAnnouncementId === announcement.id}
                       onClick={() => {
-                        if (!isApiBacked) return;
+                        if (!canWriteRoomContext) return;
                         setDeletingAnnouncementId(announcement.id);
                         void deleteActiveRoomAnnouncement(announcement.id).finally(() =>
                           setDeletingAnnouncementId(undefined),
@@ -567,9 +577,9 @@ export const MemberRail = () => {
               暂无公告。
             </p>
           )}
-          {!isApiBacked ? (
+          {!canWriteRoomContext ? (
             <p className="rounded-md border border-caution/30 bg-[#fff3d8] p-2.5 text-xs leading-5 text-caution">
-              当前是 fallback 数据，公告写入需要启动 LinkA daemon。
+              当前没有 API-backed Room，公告写入需要启动 LinkA daemon。
             </p>
           ) : null}
         </section>
@@ -702,7 +712,8 @@ export const MemberRail = () => {
                 onSubmit={(event) => {
                   event.preventDefault();
 
-                  if (!isApiBacked || trimmedDocEditTitle.length === 0 || isSavingDoc) return;
+                  if (!canWriteRoomContext || trimmedDocEditTitle.length === 0 || isSavingDoc)
+                    return;
 
                   setIsSavingDoc(true);
                   void updateActiveRoomDoc(selectedDoc.id, {
@@ -721,20 +732,20 @@ export const MemberRail = () => {
                   className="min-w-0 rounded-md border border-line bg-[#fbf7ed] px-2.5 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-70"
                   maxLength={100}
                   value={docEditTitle}
-                  disabled={!isApiBacked || isSavingDoc}
+                  disabled={!canWriteRoomContext || isSavingDoc}
                   onChange={(event) => setDocEditTitle(event.target.value)}
                 />
                 <textarea
                   className="min-h-36 resize-y rounded-md border border-line bg-[#fbf7ed] px-2.5 py-2 text-sm leading-5 text-ink disabled:cursor-not-allowed disabled:opacity-70"
                   value={docEditBody}
-                  disabled={!isApiBacked || isSavingDoc}
+                  disabled={!canWriteRoomContext || isSavingDoc}
                   onChange={(event) => setDocEditBody(event.target.value)}
                 />
                 <div className="grid grid-cols-[1fr_auto] gap-2">
                   <select
                     className="min-w-0 rounded-md border border-line bg-[#fbf7ed] px-2.5 py-1.5 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-70"
                     value={docEditStatus}
-                    disabled={!isApiBacked || isSavingDoc}
+                    disabled={!canWriteRoomContext || isSavingDoc}
                     onChange={(event) => setDocEditStatus(event.target.value as DocStatus)}
                   >
                     <option value="draft">draft</option>
@@ -744,7 +755,9 @@ export const MemberRail = () => {
                   <button
                     className="rounded-md bg-ink px-3 py-1.5 text-sm font-semibold text-white shadow-sketch hover:bg-linka disabled:cursor-not-allowed disabled:bg-muted"
                     type="submit"
-                    disabled={!isApiBacked || trimmedDocEditTitle.length === 0 || isSavingDoc}
+                    disabled={
+                      !canWriteRoomContext || trimmedDocEditTitle.length === 0 || isSavingDoc
+                    }
                   >
                     {isSavingDoc ? "保存中" : "保存"}
                   </button>
@@ -756,7 +769,11 @@ export const MemberRail = () => {
                 onSubmit={(event) => {
                   event.preventDefault();
 
-                  if (!isApiBacked || trimmedDocCommentBody.length === 0 || isCommentingDoc) {
+                  if (
+                    !canWriteRoomContext ||
+                    trimmedDocCommentBody.length === 0 ||
+                    isCommentingDoc
+                  ) {
                     return;
                   }
 
@@ -771,15 +788,19 @@ export const MemberRail = () => {
                 <textarea
                   className="min-h-16 resize-none rounded-md border border-line bg-panel px-2.5 py-2 text-sm leading-5 text-ink placeholder:text-muted disabled:cursor-not-allowed disabled:opacity-70"
                   maxLength={240}
-                  placeholder={isApiBacked ? "添加评论" : "需要连接 LinkA daemon 后才能评论"}
+                  placeholder={
+                    canWriteRoomContext ? "添加评论" : "需要选择 API-backed Room 后才能评论"
+                  }
                   value={docCommentBody}
-                  disabled={!isApiBacked || isCommentingDoc}
+                  disabled={!canWriteRoomContext || isCommentingDoc}
                   onChange={(event) => setDocCommentBody(event.target.value)}
                 />
                 <button
                   className="rounded-md border border-linka/35 bg-[#f0ecff] px-3 py-1.5 text-sm font-semibold text-linka disabled:cursor-not-allowed disabled:opacity-60"
                   type="submit"
-                  disabled={!isApiBacked || trimmedDocCommentBody.length === 0 || isCommentingDoc}
+                  disabled={
+                    !canWriteRoomContext || trimmedDocCommentBody.length === 0 || isCommentingDoc
+                  }
                 >
                   {isCommentingDoc ? "发送中" : "评论"}
                 </button>
@@ -811,7 +832,7 @@ export const MemberRail = () => {
                     ))
                 ) : (
                   <p className="rounded-md border border-line bg-[#fbf7ed] p-2 text-xs text-muted">
-                    {isApiBacked ? "暂无版本记录" : "fallback 模式不加载版本记录"}
+                    {canWriteRoomContext ? "暂无版本记录" : "非 API Room 不加载版本记录"}
                   </p>
                 )}
               </div>
@@ -841,9 +862,9 @@ export const MemberRail = () => {
                   </p>
                 )}
               </div>
-              {!isApiBacked ? (
+              {!canWriteRoomContext ? (
                 <p className="mt-3 rounded-md border border-caution/30 bg-[#fff3d8] p-2 text-xs leading-5 text-caution">
-                  当前是 fallback 数据，Doc 编辑、评论和版本加载需要启动 LinkA daemon。
+                  当前没有 API-backed Room，Doc 编辑、评论和版本加载需要启动 LinkA daemon。
                 </p>
               ) : null}
             </section>
@@ -969,7 +990,7 @@ export const MemberRail = () => {
                       {selectedActivityRunId
                         ? isApiBacked
                           ? `状态：${trajectoryExportStatus}`
-                          : "当前是 fallback 数据，导出需要启动 LinkA daemon。"
+                          : "当前没有 API-backed Room，导出需要启动 LinkA daemon。"
                         : "该活动没有 runId，无法导出 trajectory。"}
                     </p>
                   </div>
@@ -1036,7 +1057,9 @@ export const MemberRail = () => {
                         </button>
                       </div>
                     </div>
-                    <pre className="max-h-64 overflow-auto rounded-md border border-line bg-[#1f2421] p-2 font-mono text-[11px] leading-5 text-[#fbf7ed]">{trajectoryExportPreview}</pre>
+                    <pre className="max-h-64 overflow-auto rounded-md border border-line bg-[#1f2421] p-2 font-mono text-[11px] leading-5 text-[#fbf7ed]">
+                      {trajectoryExportPreview}
+                    </pre>
                   </div>
                 ) : null}
               </div>
